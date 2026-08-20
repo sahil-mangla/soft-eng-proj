@@ -1,0 +1,10 @@
+# Decided in docs/DECISIONS.md (D1-D3): custom Python simulation first,
+# synthetic grid network first, venv + pip.
+
+networkx        # graph representation / shortest-time routing
+matplotlib      # comparison charts, signal-state timelines
+
+# --- Added later, when the corresponding decision's "later" phase begins ---
+# traci         # D1 phase 2: SUMO port, once the custom-sim algorithms are proven
+# sumolib       # D1 phase 2
+# osmnx         # D2 phase 2: real OpenStreetMap network import

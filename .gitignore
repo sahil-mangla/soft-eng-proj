@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.Python
+build/
+dist/
+
+# Simulation / data outputs
+*.xml.bak
+outputs/
+*.log
+
+# SUMO artifacts (if D1 selects SUMO)
+*.rou.alt.xml
+*.trips.xml
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
