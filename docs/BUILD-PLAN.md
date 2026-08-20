@@ -11,8 +11,9 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 - [x] Repo structure created (`network/`, `simulation/`, `core/`, `metrics/`,
       `viz/`, `docs/`).
-- [x] Project report Chapter 1 (Introduction) and Chapter 2 (Feasibility Study)
-      drafted.
+- [x] Project report Chapter 1 (Introduction), Chapter 2 (Feasibility Study),
+      and Chapter 3 (Design Sheets — architecture, sequence, decision logic,
+      output mockup) drafted.
 - [x] **Architecture / tech-stack decisions made and logged** — see
       [DECISIONS.md](DECISIONS.md): custom Python sim first (SUMO port later),
       synthetic grid first (OSM import later), venv + pip.
