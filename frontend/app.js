@@ -19,12 +19,12 @@
     corridor_recovery: 'Greens timed to the predicted arrival, then eased back to the cycle.',
   };
   const PARAMS = [
-    { key: 'seed', label: 'Traffic seed', min: 0, max: 10000, step: 1, def: 42 },
-    { key: 'vehicles', label: 'Background vehicles', min: 0, max: 400, step: 10, def: 80 },
-    { key: 'hold', label: 'Max hold, seconds', min: 0, max: 40, step: 1, def: 15 },
-    { key: 'horizon', label: 'Look-ahead, seconds', min: 10, max: 180, step: 5, def: 60 },
+    { key: 'seed', label: 'Seed', min: 0, max: 10000, step: 1, def: 42 },
+    { key: 'vehicles', label: 'Vehicles', min: 0, max: 400, step: 10, def: 80 },
+    { key: 'hold', label: 'Max hold (s)', min: 0, max: 40, step: 1, def: 15 },
+    { key: 'horizon', label: 'Look-ahead (s)', min: 10, max: 180, step: 5, def: 60 },
     { key: 'recovery', label: 'Recovery cycles', min: 0, max: 6, step: 1, def: 2 },
-    { key: 'trigger', label: 'Reactive trigger, metres', min: 50, max: 400, step: 10, def: 200 },
+    { key: 'trigger', label: 'Trigger (m)', min: 50, max: 400, step: 10, def: 200 },
   ];
   const SLEW = [
     ['', 'Off, shift at once'],
@@ -44,6 +44,9 @@
   };
   const f0 = (n) => Math.round(n).toString();
   const f1 = (n) => n.toFixed(1);
+const NB = '\u202f';
+const sec = (n) => `${Math.round(n)}${NB}s`;
+const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
   const signed = (n, digits = 1) => (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n).toFixed(digits);
 
   const state = {
@@ -85,11 +88,14 @@
   }
 
   /* ---- shell -------------------------------------------------------- */
+  function field(p) {
+    return `<label class="field"><span class="field__label">${p.label}</span>
+      <input class="input num" type="number" name="${p.key}" min="${p.min}" max="${p.max}" step="${p.step}" inputmode="numeric"></label>`;
+  }
+
   function shell() {
-    const fields = PARAMS.map(
-      (p) => `<label class="field"><span class="field__label">${p.label}</span>
-        <input class="input num" type="number" name="${p.key}" min="${p.min}" max="${p.max}" step="${p.step}" inputmode="numeric"></label>`,
-    ).join('');
+    const group = (title, keys, extra = '') => `<fieldset class="group"><legend class="group__title">${title}</legend>
+      ${keys.map((k) => field(PARAMS.find((p) => p.key === k))).join('')}${extra}</fieldset>`;
     const slew = SLEW.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
     document.getElementById('app').innerHTML = `
       <a class="skip" href="#stage">Skip to the replay</a>
@@ -104,9 +110,10 @@
         <section class="panel params" aria-labelledby="h-params">
           <h2 id="h-params" class="panel__title">Scenario</h2>
           <form id="params" class="fields" autocomplete="off">
-            ${fields}
-            <label class="field field--wide"><span class="field__label">Signal shift</span>
-              <select class="input" name="slew">${slew}</select></label>
+            ${group('Traffic', ['seed', 'vehicles'])}
+            ${group('Corridor controller', ['hold', 'horizon', 'recovery'],
+              `<label class="field field--wide"><span class="field__label">Signal shift</span><select class="input" name="slew">${slew}</select></label>`)}
+            ${group('Reactive baseline', ['trigger'])}
             <div class="field field--wide">
               <button class="btn btn--primary" type="submit" id="run">Run scenario</button>
               <p class="hint" id="run-hint"></p>
@@ -114,50 +121,56 @@
           </form>
         </section>
 
-        <section class="panel stage" id="stage" aria-labelledby="h-stage">
-          <div class="panel__head">
+        <div class="main">
+          <section class="panel stage" id="stage" aria-labelledby="h-stage">
             <h2 id="h-stage" class="panel__title">Replay</h2>
             <div class="modes" role="radiogroup" aria-label="Control mode" id="modes"></div>
-          </div>
-          <p class="mode-note" id="mode-note"></p>
-          <div class="map" id="map" data-state="loading">
-            <div class="map__skeleton" aria-hidden="true"></div>
-            <div class="map__error" role="alert"><p id="map-error"></p><button class="btn" type="button" id="retry">Try again</button></div>
-            <svg class="map__svg" id="map-svg" role="img" aria-label="Signal grid with the ambulance route"></svg>
-          </div>
-          <div class="legend" aria-hidden="true">
-            <span class="legend__item"><i class="swatch swatch--go"></i>Green</span>
-            <span class="legend__item"><i class="swatch swatch--amber"></i>Yellow</span>
-            <span class="legend__item"><i class="swatch swatch--stop"></i>Red</span>
-            <span class="legend__item"><i class="swatch swatch--held"></i>Phase shifted by the controller</span>
-            <span class="legend__item"><i class="swatch swatch--queue"></i>Stopped vehicle</span>
-          </div>
-          <div class="transport" id="transport">
-            <button class="btn btn--primary" type="button" id="play" aria-label="Play replay">Play</button>
-            <button class="btn" type="button" id="restart">Restart</button>
-            <input class="scrub" type="range" id="scrub" min="0" max="0" step="1" value="0" aria-label="Replay time">
-            <output class="clock num" id="clock" for="scrub">0 s</output>
-            <label class="speed"><span class="visually-hidden">Playback speed</span>
-              <select class="input" id="speed"><option value="1">1×</option><option value="4">4×</option><option value="16">16×</option></select></label>
-          </div>
-          <p class="reading" id="reading"></p>
-        </section>
+            <p class="mode-note" id="mode-note"></p>
+            <div class="readout" id="readout" aria-live="polite">
+              <p class="readout__head" id="readout-head"></p>
+              <p class="readout__body" id="readout-body"></p>
+            </div>
+            <div class="map" id="map" data-state="loading">
+              <div class="map__skeleton" aria-hidden="true"></div>
+              <div class="map__error" role="alert"><p id="map-error"></p><button class="btn" type="button" id="retry">Try again</button></div>
+              <svg class="map__svg" id="map-svg" role="img" aria-label="Signal grid with the ambulance route"></svg>
+            </div>
+            <div class="legend" aria-hidden="true">
+              <span class="legend__item"><i class="swatch swatch--go"></i>Green</span>
+              <span class="legend__item"><i class="swatch swatch--amber"></i>Yellow</span>
+              <span class="legend__item"><i class="swatch swatch--stop"></i>Red</span>
+              <span class="legend__item"><i class="swatch swatch--held"></i>Phase shifted by the controller</span>
+              <span class="legend__item"><i class="swatch swatch--queue"></i>Stopped vehicle</span>
+              <span class="legend__item"><span class="legend__fig num">12 s</span>Predicted arrival of the ambulance</span>
+            </div>
+            <div class="transport" id="transport">
+              <button class="btn btn--primary" type="button" id="play" aria-label="Play replay">Play</button>
+              <button class="btn" type="button" id="restart">Restart</button>
+              <input class="scrub" type="range" id="scrub" min="0" max="0" step="1" value="0" aria-label="Replay time">
+              <output class="clock num" id="clock" for="scrub">0 s</output>
+              <label class="speed"><span class="visually-hidden">Playback speed</span>
+                <select class="input" id="speed"><option value="1">1×</option><option value="4">4×</option><option value="16">16×</option></select></label>
+            </div>
+          </section>
 
-        <section class="panel timeline" aria-labelledby="h-time">
-          <h2 id="h-time" class="panel__title">Signal on the ambulance's approach</h2>
-          <div id="gantt" class="gantt"></div>
-        </section>
+          <section class="panel timeline" aria-labelledby="h-time">
+            <h2 id="h-time" class="panel__title">Signal on the ambulance's approach</h2>
+            <div id="gantt" class="gantt"></div>
+          </section>
+        </div>
 
-        <section class="panel ledger" aria-labelledby="h-ledger">
-          <h2 id="h-ledger" class="panel__title">Four modes, one scenario</h2>
-          <div id="ledger"></div>
-          <div id="seeds" class="seeds"></div>
-        </section>
+        <div class="side">
+          <section class="panel ledger" aria-labelledby="h-ledger">
+            <h2 id="h-ledger" class="panel__title">Four modes, one scenario</h2>
+            <div id="ledger"></div>
+            <div id="seeds" class="seeds"></div>
+          </section>
 
-        <section class="panel eta" aria-labelledby="h-eta">
-          <h2 id="h-eta" class="panel__title">ETA error by time to junction</h2>
-          <div id="eta"></div>
-        </section>
+          <section class="panel eta" aria-labelledby="h-eta">
+            <h2 id="h-eta" class="panel__title">ETA error by time to junction</h2>
+            <div id="eta"></div>
+          </section>
+        </div>
       </main>`;
   }
 
@@ -232,23 +245,27 @@
     const jg = svgEl('g', { class: 'junctions' }, svg);
     const junctionNodes = network.junctions.map((j) => {
       const g = svgEl('g', { class: 'jn', transform: `translate(${j.x} ${j.y})` }, jg);
-      svgEl('circle', { class: 'jn__held', r: 62 }, g);
-      svgEl('rect', { class: 'jn__box', x: -34, y: -34, width: 68, height: 68 }, g);
-      const ns = svgEl('line', { class: 'sig sig--ns s-R', x1: 0, y1: -24, x2: 0, y2: 24 }, g);
-      const ew = svgEl('line', { class: 'sig sig--ew s-R', x1: -24, y1: 0, x2: 24, y2: 0 }, g);
+      svgEl('circle', { class: 'jn__held', r: 78 }, g);
+      svgEl('rect', { class: 'jn__box', x: -44, y: -44, width: 88, height: 88 }, g);
+      const ns = svgEl('line', { class: 'sig sig--ns s-R', x1: 0, y1: -32, x2: 0, y2: 32 }, g);
+      const ew = svgEl('line', { class: 'sig sig--ew s-R', x1: -32, y1: 0, x2: 32, y2: 0 }, g);
       return { ns, ew, held: $('.jn__held', g) };
     });
     for (const [idx, label] of [[0, 'A'], [route.length - 1, 'B']]) {
       const j = byId[route[idx]];
-      const t = svgEl('text', { class: 'tag', x: j.x, y: j.y - 52, 'text-anchor': 'middle' }, svg);
+      const t = svgEl('text', { class: 'tag', x: j.x, y: j.y - 66, 'text-anchor': 'middle' }, svg);
       t.textContent = label === 'A' ? 'Start' : 'Hospital';
     }
+    const etaNodes = route.slice(1).map((id) => {
+      const j = byId[id];
+      return { id, node: svgEl('text', { class: 'eta-tag num', x: j.x + 58, y: j.y - 50 }, svg) };
+    });
     const vehicles = svgEl('g', { class: 'vehicles' }, svg);
     const amb = svgEl('g', { class: 'amb' }, svg);
-    svgEl('circle', { class: 'amb__ring', r: 46 }, amb);
-    svgEl('circle', { class: 'amb__dot', r: 30 }, amb);
-    svgEl('path', { class: 'amb__plus', d: 'M0 -16V16M-16 0H16' }, amb);
-    state.map = { junctionNodes, vehicles, amb, pool: [] };
+    svgEl('circle', { class: 'amb__ring', r: 54 }, amb);
+    svgEl('circle', { class: 'amb__dot', r: 36 }, amb);
+    svgEl('path', { class: 'amb__plus', d: 'M0 -20V20M-20 0H20' }, amb);
+    state.map = { junctionNodes, vehicles, amb, pool: [], etaNodes };
   }
 
   function drawFrame(pos) {
@@ -264,6 +281,16 @@
       n.ew.setAttribute('class', `sig sig--ew s-${ewRow[k]}`);
       n.held.style.display = Math.abs(shifts[k]) > 0.5 ? '' : 'none';
     });
+    const tNow = fr.t[i];
+    const etaData = state.replay.modes[state.mode].eta.predicted;
+    for (const { id, node } of m.etaNodes) {
+      const e = (etaData[id] || [])[Math.floor(tNow / 2)];
+      const left = e ? e[1] - tNow : -1;
+      if (left < 0 || left > 90) { node.style.display = 'none'; continue; }
+      node.style.display = '';
+      node.textContent = `${f0(left)} s`;
+      node.setAttribute('class', left < 15 ? 'eta-tag eta-tag--soon num' : 'eta-tag num');
+    }
     const a0 = fr.ambulance[i], a1 = fr.ambulance[j];
     m.amb.setAttribute('transform', `translate(${a0[0] + (a1[0] - a0[0]) * f} ${a0[1] + (a1[1] - a0[1]) * f})`);
 
@@ -381,9 +408,9 @@
     }).join('');
     $('#ledger').innerHTML = `<table class="table">
       <caption class="visually-hidden">Seed ${state.replay.scenario.seed}, one traffic draw per mode</caption>
-      <thead><tr><th scope="col">Mode</th><th scope="col">Transit</th><th scope="col">Against none</th><th scope="col">Background delay</th><th scope="col">Longest non-green</th></tr></thead>
+      <thead><tr><th scope="col">Mode</th><th scope="col">Transit</th><th scope="col">Against none</th><th scope="col">Bg delay</th><th scope="col">Longest wait</th></tr></thead>
       <tbody>${rows}</tbody></table>
-      <p class="note">One seed is one traffic draw. Longest non-green is the longest stretch any signal showed red or yellow to one direction; a fixed cycle gives ${f0(base.max_nongreen_s)} s.</p>`;
+      <p class="note">One seed is one traffic draw. Longest wait is the longest stretch any signal showed red or yellow to one direction; a fixed cycle gives ${f0(base.max_nongreen_s)} s.</p>`;
     $$('#ledger .rowbtn').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
   }
 
@@ -408,7 +435,7 @@
         <td class="num">${m.delay_vs_ref ? signed(m.delay_vs_ref.mean) + ' ± ' + f1(m.delay_vs_ref.ci95) + ' s' : 'Reference'}</td></tr>`;
     }).join('');
     box.innerHTML = `<h3 class="seeds__title">Across ${c.seeds} seeds</h3>
-      <table class="table table--compact"><thead><tr><th scope="col">Mode</th><th scope="col">Transit</th><th scope="col">Transit against none</th><th scope="col">Background delay against none</th></tr></thead><tbody>${rows}</tbody></table>
+      <table class="table table--compact"><thead><tr><th scope="col">Mode</th><th scope="col">Transit</th><th scope="col">Transit vs none</th><th scope="col">Delay vs none</th></tr></thead><tbody>${rows}</tbody></table>
       <p class="note">Paired by seed. Where the delay interval spans zero, the modes are not distinguishable on background delay.</p>`;
   }
 
@@ -421,6 +448,7 @@
       if (!res.ok) throw new Error((await res.json()).error || res.statusText);
       state.compare = await res.json();
       paintSeeds();
+      paintReading();
     } catch (err) {
       $('#seeds').insertAdjacentHTML('beforeend', `<p class="error" role="alert">Comparison failed: ${err.message}</p>`);
       btn.disabled = false;
@@ -445,14 +473,24 @@
   function paintReading() {
     const ms = state.replay.modes;
     const m = ms[state.mode].metrics, base = ms.no_preemption.metrics;
-    const el = $('#reading');
+    const head = `${MODE_LABEL[state.mode]}: <span class="num">${sec(m.transit_s)}</span> door to door`;
+    let body;
     if (state.mode === 'no_preemption') {
-      el.textContent = `Fixed cycle: the ambulance needs ${f0(m.transit_s)} s and waits at red lights along the way. Background traffic averages ${f1(m.avg_delay_s)} s of delay.`;
-      return;
+      body = `Fixed cycle. The ambulance waits at red lights; background traffic averages <span class="num">${sec1(m.avg_delay_s)}</span> of delay.`;
+    } else {
+      const gain = base.transit_s - m.transit_s;
+      const dd = m.avg_delay_s - base.avg_delay_s;
+      body = `<span class="num">${sec(gain)}</span> (${f0((gain / base.transit_s) * 100)}%) faster than no preemption. Background delay <span class="num">${sec1(m.avg_delay_s)}</span>, ${signed(dd)}${NB}s against it; the longest any signal waited was <span class="num">${sec(m.max_nongreen_s)}</span>.`;
+      const c = state.compare && state.compare.modes[state.mode];
+      if (c && c.delay_vs_ref) {
+        const d = c.delay_vs_ref;
+        body += Math.abs(d.mean) <= d.ci95
+          ? ` Over ${state.compare.seeds} seeds the background delay is not distinguishable from no preemption.`
+          : ` Over ${state.compare.seeds} seeds background delay moves ${signed(d.mean)} s.`;
+      }
     }
-    const gain = base.transit_s - m.transit_s;
-    const dd = m.avg_delay_s - base.avg_delay_s;
-    el.textContent = `${f0(m.transit_s)} s door to door, ${f0(gain)} s (${f0((gain / base.transit_s) * 100)}%) faster than no preemption. Background delay ${f1(m.avg_delay_s)} s, ${signed(dd)} s against it.`;
+    $('#readout-head').innerHTML = head;
+    $('#readout-body').innerHTML = body;
   }
 
   function paintStatus() {
@@ -483,9 +521,11 @@
 
   function paintModes() {
     const box = $('#modes');
-    box.innerHTML = MODES.map(
-      (k) => `<button type="button" class="mode" role="radio" aria-checked="${k === state.mode}" data-mode="${k}" tabindex="${k === state.mode ? 0 : -1}">${MODE_LABEL[k]}</button>`,
-    ).join('');
+    box.innerHTML = MODES.map((k) => {
+      const m = state.replay.modes[k].metrics;
+      return `<button type="button" class="mode" role="radio" aria-checked="${k === state.mode}" data-mode="${k}" tabindex="${k === state.mode ? 0 : -1}">
+        <span class="mode__name">${MODE_LABEL[k]}</span><span class="mode__fig num">${sec(m.transit_s)}</span></button>`;
+    }).join('');
     $$('.mode', box).forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
     $('#mode-note').textContent = MODE_NOTE[state.mode];
   }

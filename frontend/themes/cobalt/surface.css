@@ -10,13 +10,14 @@
   --map-bg: var(--color-paper-2); --skeleton-line: var(--color-rule);
   --road-color: var(--color-rule-2); --route-color: color-mix(in oklab, var(--color-accent) 20%, transparent);
   --jn-fill: var(--color-paper); --jn-line: var(--color-ink-2);
-  --signal-go: oklch(56% 0.14 152); --signal-amber: oklch(79% 0.15 85); --signal-stop: oklch(52% 0.2 27);
+  --signal-go: oklch(60% 0.12 152); --signal-amber: oklch(82% 0.13 88); --signal-stop: oklch(57% 0.15 26);
   --held-color: var(--color-accent);
   --veh-color: var(--color-glyph-4); --veh-stopped: var(--color-ink);
   --amb-color: var(--color-accent); --amb-ink: var(--color-accent-ink);
   --trace-color: var(--color-ink); --head-color: var(--color-accent);
   --bar-fill: var(--color-accent); --row-current: var(--color-accent-wash);
-  --run-hatch: oklch(100% 0 0 / 0.18);
+  --readout-bg: var(--color-graphite); --readout-ink: var(--color-graphite-ink); --readout-muted: var(--color-graphite-muted); --readout-accent: var(--color-accent-2);
+  --run-hatch: oklch(100% 0 0 / 0.14);
 }
 .panel { border-radius: var(--radius-card); }
 @supports (corner-shape: bevel) {
@@ -28,3 +29,7 @@
 .brand { font-size: var(--text-2xl); }
 .panel__title { font-weight: 600; }
 .topbar { border-bottom: var(--rule-hair) solid var(--color-rule); max-width: none; padding-inline: max(var(--gutter), calc((100% - var(--container)) / 2 + var(--gutter))); margin-bottom: var(--space-md); }
+@supports (corner-shape: bevel) { .readout { border-radius: var(--cut) 3px var(--cut) 3px; corner-shape: bevel round bevel round; } }
+.mode[aria-checked="true"] { box-shadow: var(--shadow-key-accent); }
+.group__title { color: var(--color-ink-2); }
+.panel__title { margin-bottom: var(--space-xs); }

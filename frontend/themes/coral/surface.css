@@ -17,6 +17,7 @@
   --amb-color: var(--color-board); --amb-ink: var(--color-board-type);
   --trace-color: var(--color-ink); --head-color: var(--color-ink);
   --bar-fill: var(--color-board); --row-current: var(--color-paper-2);
+  --readout-bg: var(--color-board); --readout-ink: var(--color-board-type); --readout-muted: var(--color-board-type); --readout-accent: var(--color-board-type);
   --run-hatch: oklch(100% 0.005 80 / 0.2);
   --font-display: "General Sans", ui-sans-serif, system-ui, sans-serif;
 }
