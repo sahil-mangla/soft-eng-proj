@@ -45,12 +45,14 @@
     if (parent) parent.appendChild(node);
     return node;
   };
-  const f0 = (n) => Math.round(n).toString();
-  const f1 = (n) => n.toFixed(1);
-const NB = '\u202f';
-const sec = (n) => `${Math.round(n)}${NB}s`;
-const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
-  const signed = (n, digits = 1) => (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n).toFixed(digits);
+  // Figures arrive as null when a run never finished (JSON has no NaN), so every formatter accepts null.
+  const ok = (n) => n != null && Number.isFinite(n);
+  const f0 = (n) => (ok(n) ? Math.round(n).toString() : 'n/a');
+  const f1 = (n) => (ok(n) ? n.toFixed(1) : 'n/a');
+  const NB = '\u202f'; // narrow no-break space keeps a figure and its unit together
+  const sec = (n) => (ok(n) ? `${Math.round(n)}${NB}s` : 'n/a');
+  const sec1 = (n) => (ok(n) ? `${n.toFixed(1)}${NB}s` : 'n/a');
+  const signed = (n, digits = 1) => (!ok(n) ? 'n/a' : (n > 0 ? '+' : n < 0 ? '\u2212' : '') + Math.abs(n).toFixed(digits));
 
   const state = {
     replay: null,
@@ -64,6 +66,7 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     error: '',
     map: null,
     last: 0,
+    params: null,
     sel: null,
     opener: null,
     shownTransit: null,
@@ -133,7 +136,7 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
             ${group('Reactive baseline', ['trigger'])}
             <div class="field field--wide">
               <button class="btn btn--primary" type="submit" id="run">Run scenario</button>
-              <p class="hint" id="run-hint"></p>
+              <p class="hint" id="run-hint" aria-live="polite"></p>
             </div>
           </form>
         </section>
@@ -216,6 +219,7 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
 
   /* ---- loading ------------------------------------------------------ */
   async function load(values) {
+    state.params = { ...values }; // the scenario the replay on screen belongs to
     state.status = 'loading';
     state.playing = false;
     paintStatus();
@@ -250,6 +254,8 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
   }
 
   /* ---- map ---------------------------------------------------------- */
+  const modeRoute = () => state.replay.modes[state.mode].route;
+
   function buildMap() {
     const { network, route } = state.replay;
     const svg = $('#map-svg');
@@ -267,7 +273,7 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     for (const [u, v] of network.edges) {
       svgEl('line', { class: 'road', x1: byId[u].x, y1: byId[u].y, x2: byId[v].x, y2: byId[v].y }, roads);
     }
-    svgEl('polyline', { class: 'route', points: route.map((id) => `${byId[id].x},${byId[id].y}`).join(' ') }, svg);
+    const routeLine = svgEl('polyline', { class: 'route' }, svg);
 
     const jg = svgEl('g', { class: 'junctions' }, svg);
     const junctionNodes = network.junctions.map((j) => {
@@ -283,7 +289,8 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
       const t = svgEl('text', { class: 'tag', x: j.x, y: j.y - 66, 'text-anchor': 'middle' }, svg);
       t.textContent = label === 'A' ? 'Start' : 'Hospital';
     }
-    const etaNodes = route.slice(1).map((id) => {
+    const etaIds = [...new Set(Object.values(state.replay.modes).flatMap((m) => Object.keys(m.eta.predicted)))];
+    const etaNodes = etaIds.map((id) => {
       const j = byId[id];
       return { id, node: svgEl('text', { class: 'eta-tag num', x: j.x + 58, y: j.y - 50 }, svg) };
     });
@@ -292,7 +299,14 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     svgEl('circle', { class: 'amb__ring', r: 54 }, amb);
     svgEl('circle', { class: 'amb__dot', r: 36 }, amb);
     svgEl('path', { class: 'amb__plus', d: 'M0 -20V20M-20 0H20' }, amb);
-    state.map = { junctionNodes, vehicles, amb, pool: [], etaNodes };
+    state.map = { junctionNodes, vehicles, amb, pool: [], etaNodes, routeLine, byId };
+    paintRoute();
+  }
+
+  function paintRoute() {
+    const m = state.map;
+    if (!m) return;
+    m.routeLine.setAttribute('points', modeRoute().map((id) => `${m.byId[id].x},${m.byId[id].y}`).join(' '));
   }
 
   function drawFrame(pos) {
@@ -350,13 +364,14 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     const total = fr.t.length;
     const order = replay.network.junctions.map((j) => j.id);
     const byId = Object.fromEntries(replay.network.junctions.map((j) => [j.id, j]));
-    const axes = approachAxes(replay.route, byId);
+    const route = modeRoute();
+    const axes = approachAxes(route, byId);
     const root = $('#gantt');
     root.replaceChildren();
 
     const rows = document.createElement('div');
     rows.className = 'gantt__rows';
-    replay.route.forEach((id, r) => {
+    route.forEach((id, r) => {
       const idx = order.indexOf(id);
       const row = document.createElement('div');
       row.className = 'gantt__row';
@@ -387,9 +402,9 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
 
     const overlay = document.createElement('div');
     overlay.className = 'gantt__overlay';
-    const line = svgEl('svg', { class: 'gantt__path', viewBox: `0 0 ${total} ${replay.route.length}`, preserveAspectRatio: 'none', 'aria-hidden': 'true' });
+    const line = svgEl('svg', { class: 'gantt__path', viewBox: `0 0 ${total} ${route.length}`, preserveAspectRatio: 'none', 'aria-hidden': 'true' });
     const pts = [`0,0.5`];
-    replay.route.slice(1).forEach((id, k) => {
+    route.slice(1).forEach((id, k) => {
       const t = mode.arrivals[id];
       if (t == null) return;
       pts.push(`${t},${k + 0.5}`, `${t},${k + 1.5}`);
@@ -429,14 +444,14 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
   function paintLedger() {
     const ms = state.replay.modes;
     const base = ms.no_preemption.metrics;
-    const maxT = Math.max(...MODES.map((k) => ms[k].metrics.transit_s));
+    const maxT = Math.max(1, ...MODES.map((k) => ms[k].metrics.transit_s).filter(ok));
     const rows = MODES.map((k) => {
       const m = ms[k].metrics;
       const ref = k === 'no_preemption';
       return `<tr data-mode="${k}" ${k === state.mode ? 'aria-current="true"' : ''}>
         <th scope="row"><button type="button" class="rowbtn" data-mode="${k}" aria-pressed="${k === state.mode}">${MODE_LABEL[k]}</button></th>
-        <td class="num"><span class="fig">${sec(m.transit_s)}</span><span class="meter" aria-hidden="true"><i style="width:${(m.transit_s / maxT) * 100}%"></i></span></td>
-        <td class="num">${ref ? 'Reference' : delta(m.transit_s - base.transit_s, { tol: 1 })}</td>
+        <td class="num"><span class="fig">${sec(m.transit_s)}</span><span class="meter" aria-hidden="true"><i style="width:${ok(m.transit_s) ? (m.transit_s / maxT) * 100 : 0}%"></i></span></td>
+        <td class="num">${ref ? 'Reference' : ok(m.transit_s) && ok(base.transit_s) ? delta(m.transit_s - base.transit_s, { tol: 1 }) : 'n/a'}</td>
         <td class="num"><span class="fig">${sec1(m.avg_delay_s)}</span>${ref ? '' : `<span class="sub">${delta(m.avg_delay_s - base.avg_delay_s, { tol: 0.5, digits: 1 })}</span>`}</td>
         <td class="num"><span class="fig">${sec(m.max_nongreen_s)}</span>${ref ? '' : `<span class="sub">${delta(m.max_nongreen_s - base.max_nongreen_s, { tol: 0 })}</span>`}</td>
       </tr>`;
@@ -478,7 +493,8 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     const mode = c.modes[state.mode], ref = c.modes.no_preemption;
     if (state.mode === 'no_preemption' || !mode.transit_samples || !ref.transit_samples) return '';
     const one = (label, a, b, unit, digits) => {
-      const diffs = a.map((v, i) => v - b[i]);
+      const diffs = a.map((v, i) => (ok(v) && ok(b[i]) ? v - b[i] : null)).filter(ok);
+      if (!diffs.length) return '';
       const max = Math.max(...diffs.map(Math.abs), 1e-9);
       const better = diffs.filter((d) => d < 0).length;
       const bars = diffs.map((d, i) => {
@@ -490,9 +506,11 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
         <div class="strip__bars" role="img" aria-label="${label} against no preemption for each seed: lower in ${better} of ${diffs.length}">${bars}</div>
         <p class="strip__scale num"><span>−${f1(max)} ${unit}</span><span>+${f1(max)} ${unit}</span></p></div>`;
     };
+    const skipped = (mode.unfinished_runs || 0) + (ref.unfinished_runs || 0);
+    const skippedNote = skipped ? `<p class="note">${skipped} run${skipped === 1 ? '' : 's'} where the ambulance did not arrive left out.</p>` : '';
     return `<div class="strips"><h3 class="seeds__title">${MODE_LABEL[state.mode]} against no preemption, seed by seed</h3>
       ${one('Ambulance transit', mode.transit_samples, ref.transit_samples, 's', 0)}
-      ${one('Background delay', mode.delay_samples, ref.delay_samples, 's', 1)}</div>`;
+      ${one('Background delay', mode.delay_samples, ref.delay_samples, 's', 1)}${skippedNote}</div>`;
   }
 
   async function runCompare() {
@@ -500,7 +518,7 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     btn.disabled = true;
     btn.textContent = 'Running 48 simulations';
     try {
-      const res = await fetch(`/api/compare?seeds=12&${new URLSearchParams(readForm())}`);
+      const res = await fetch(`/api/compare?seeds=12&${new URLSearchParams(state.params)}`);
       if (!res.ok) throw new Error((await res.json()).error || res.statusText);
       state.compare = await res.json();
       paintSeeds();
@@ -531,7 +549,9 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     const m = ms[state.mode].metrics, base = ms.no_preemption.metrics;
     const head = `${MODE_LABEL[state.mode]}: <span class="num">${sec(m.transit_s)}</span> door to door`;
     let body;
-    if (state.mode === 'no_preemption') {
+    if (!ok(m.transit_s) || (state.mode !== 'no_preemption' && !ok(base.transit_s))) {
+      body = 'The ambulance did not arrive within the simulation limit, so there is no transit time to compare.';
+    } else if (state.mode === 'no_preemption') {
       body = `Fixed cycle. The ambulance waits at red lights; background traffic averages <span class="num">${sec1(m.avg_delay_s)}</span> of delay.`;
     } else {
       const gain = base.transit_s - m.transit_s;
@@ -575,7 +595,6 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     $('#scrub').value = i;
     if (state.gantt) state.gantt.head.style.left = `${(i / state.gantt.total) * 100}%`;
     const amb = state.replay.modes[state.mode].metrics.transit_s;
-    $('#map').dataset.arrived = fr.t[i] >= amb;
     $('#map-svg').setAttribute('aria-label', `Signal grid at ${f0(fr.t[i])} seconds. Ambulance arrives at ${f0(amb)} seconds.`);
   }
 
@@ -616,6 +635,7 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     state.pos = Math.min(state.pos, fr.t.length - 1);
     $('#scrub').max = fr.t.length - 1;
     paintModes();
+    paintRoute();
     paintReading();
     paintEta();
     if (state.compare) paintSeeds();
@@ -626,7 +646,7 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     });
     $$('#ledger .rowbtn').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === mode));
     drawFrame(state.pos);
-    writeUrl(readForm());
+    writeUrl(state.params);
   }
 
   function seek(pos) {
@@ -694,6 +714,14 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     try { localStorage.setItem(APPEARANCE_KEY, pref); } catch (err) { /* private window: keep the choice for this page only */ }
   }
 
+  function paintDirty() {
+    // Edits that have not been run: say so, rather than letting them sit next to a replay they did not produce.
+    if (state.status !== 'ready' || state.source !== 'api' || !state.params) return;
+    const now = readForm();
+    const dirty = Object.keys(now).some((k) => String(now[k]) !== String(state.params[k]));
+    $('#run-hint').textContent = dirty ? 'Changed, not run yet. The replay and comparison still show the last run.' : '';
+  }
+
   function paintPresets() {
     const n = Number($('#params').elements.vehicles.value);
     $$('#presets .mode').forEach((b) => b.setAttribute('aria-checked', String(Number(b.dataset.vehicles) === n)));
@@ -752,19 +780,20 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     const order = replay.network.junctions.map((j) => j.id);
     const idx = order.indexOf(id);
     const byId = Object.fromEntries(replay.network.junctions.map((j) => [j.id, j]));
-    const stop = replay.route.indexOf(id);
+    const route = modeRoute();
+    const stop = route.indexOf(id);
     const shift = fr.shifts[i][idx];
     const key = `${state.mode}:${id}`;
     if (state.maxShift[key] == null) state.maxShift[key] = Math.max(...fr.shifts.map((row) => Math.abs(row[idx])));
     const facts = [
-      ['Position', stop < 0 ? 'Not on the ambulance route' : stop === 0 ? 'Start of the route' : `Stop ${stop} of ${replay.route.length - 1} on the route`],
+      ['Position', stop < 0 ? 'Not on the ambulance route' : stop === 0 ? 'Start of the route' : `Stop ${stop} of ${route.length - 1} on the route`],
       ['North-south signal', STATE_WORD[fr.ns[i][idx]]],
       ['East-west signal', STATE_WORD[fr.ew[i][idx]]],
       ['Phase shift now', Math.abs(shift) < 0.05 ? 'None, on its own cycle' : `${signed(shift)} s`],
       ['Largest shift this run', `${f1(state.maxShift[key])} s`],
     ];
     if (stop > 0) {
-      const axis = approachAxes(replay.route, byId)[stop];
+      const axis = approachAxes(route, byId)[stop];
       const arrival = mode.arrivals[id];
       const pred = (mode.eta.predicted[id] || []);
       const left = pred[Math.floor(fr.t[i] / 2)] ? pred[Math.floor(fr.t[i] / 2)][1] - fr.t[i] : null;
@@ -803,6 +832,8 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
       $('#params').requestSubmit();
     });
     $('#params').elements.vehicles.addEventListener('input', paintPresets);
+    $('#params').addEventListener('input', paintDirty);
+    $('#params').addEventListener('change', paintDirty);
     $('#appearance').addEventListener('click', (e) => {
       const b = e.target.closest('.seg__btn');
       if (b) applyAppearance(b.dataset.pref);
@@ -822,7 +853,7 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     $('#play').addEventListener('click', togglePlay);
     $('#restart').addEventListener('click', () => { seek(0); });
     $('#scrub').addEventListener('input', (e) => seek(Number(e.target.value)));
-    $('#speed').addEventListener('change', (e) => { state.speed = Number(e.target.value); writeUrl(readForm()); });
+    $('#speed').addEventListener('change', (e) => { state.speed = Number(e.target.value); writeUrl(state.params); });
     $('#modes').addEventListener('keydown', (e) => {
       const dir = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
       if (!dir) return;

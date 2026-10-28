@@ -4,7 +4,7 @@ Log of decisions that materially shape the codebase. Anything here was chosen by
 the project owner, not assumed by default — see [CLAUDE.md](../CLAUDE.md) §4 for
 the candidate options each decision was drawn from.
 
-Status: **D1–D3 decided** (2026-08-20). D4 deferred, non-blocking. **M1–M5** (modelling decisions) added with simulation v2.
+Status: **D1–D3 decided** (2026-08-20). D4 deferred, non-blocking. **M1–M9** (modelling decisions) added with simulations v2 and v3.
 
 ## D1 — Simulation engine
 
@@ -77,6 +77,22 @@ Numbered M, not D, so they do not collide with the D5–D9 diagrams in
   junction between opposite shifts.
 - **M5 — Optional eased shifts (`slew_rate`).** Off by default (the brief's threshold rule).
   Exposed as a sweep parameter and a frontend control.
+
+- **M6 — Signal safety on every shift write.** A write may not skip a yellow (green→red,
+  red→yellow and yellow→green are refused); it is applied as far as is legal and finished on a
+  later tick. Checked against what was displayed on the previous tick, which also catches a
+  yellow that time had already used up. Applies to all modes, because a real preemption
+  controller keeps its clearance interval.
+- **M7 — The cross-traffic bound is a bound on waiting, not just on shift.** `max_hold` alone
+  allowed a swing from −15 s to +15 s and a ~59 s wait. Corridor modes now refuse any write that
+  would leave a signal non-green to one direction longer than `cycle − green + max_hold`. The
+  naive reactive baseline is intentionally exempt: it is the unbounded "existing systems" case
+  the corridor is compared with (CLAUDE.md 6.5).
+- **M8 — Re-routing.** The ambulance's route is recomputed on entering each road and switched
+  when the remainder is at least 10% faster at current speeds (CLAUDE.md 6.1). The route can
+  therefore differ by mode, so the replay carries one route per mode.
+- **M9 — Recovery only for junctions that were shifted,** and a run ends when signals are back on
+  schedule, not after an idle recovery timer.
 
 ## Frontend
 

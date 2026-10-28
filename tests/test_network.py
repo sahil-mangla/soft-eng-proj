@@ -74,3 +74,17 @@ def test_anchor_gives_hysteresis():
     bigger = green_shift + (1.0 if green_shift > 0 else -1.0)
     if sig.cycle_plan.phase_at(arrival + bigger)["EW"] == SignalState.GREEN:
         assert sig.best_shift_for_green("EW", arrival, max_shift=15, anchor=bigger) == bigger
+
+
+def test_nongreen_remaining_matches_the_cycle():
+    plan = CyclePlan(20, 3)
+    for t in range(0, 138):
+        for axis in ("NS", "EW"):
+            n = plan.nongreen_remaining(axis, t)
+            expected = next(k for k in range(0, 100) if plan.phase_at(t + k)[axis] == SignalState.GREEN)
+            assert abs(n - expected) < 1e-9, (axis, t, n, expected)
+
+
+def test_best_shift_survives_a_non_finite_band():
+    sig = Signal()
+    assert sig.best_shift_for_green("EW", 20.0, max_shift=15, lo=float("nan"), hi=float("nan")) == 0.0

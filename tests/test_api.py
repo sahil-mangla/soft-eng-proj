@@ -30,6 +30,14 @@ def test_replay_is_json_serialisable(replay):
     json.dumps(replay)
 
 
+def test_non_finite_numbers_are_rejected_not_clamped():
+    for key in ("slew", "hold", "horizon", "trigger"):
+        with pytest.raises(ValueError):
+            scenario_from_query({key: ["nan"]})
+    with pytest.raises(ValueError):
+        scenario_from_query({"horizon": ["inf"]})
+
+
 def test_query_is_clamped():
     sc = scenario_from_query({"vehicles": ["99999"], "grid": ["1"], "slew": ["0.25"]})
     assert sc.background_vehicles == 400 and sc.grid_size == 3 and sc.slew_rate == 0.25
@@ -62,3 +70,45 @@ def test_compare_modes_returns_per_seed_samples():
     s = out[RunMode.CORRIDOR_RECOVERY]
     assert len(s.transit_samples) == len(s.delay_samples) == 3
     assert abs(s.transit.mean - sum(s.transit_samples) / 3) < 1e-9
+
+
+def test_server_answers_nan_with_400_and_compare_with_samples():
+    import urllib.error
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    port = httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        for bad in ("slew=nan", "hold=nan", "horizon=nan"):
+            with pytest.raises(urllib.error.HTTPError) as e:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/api/replay?{bad}")
+            assert e.value.code == 400
+        data = json.load(urllib.request.urlopen(f"http://127.0.0.1:{port}/api/compare?seeds=2&vehicles=10"))
+        assert len(data["modes"]["corridor_recovery"]["transit_samples"]) == 2
+    finally:
+        httpd.shutdown()
+
+
+def test_unfinished_runs_serialise_as_null_not_nan():
+    from metrics.evaluate import ModeMetrics
+    from metrics.serialize import to_jsonable
+
+    m = ModeMetrics(transit_s=float("nan"), avg_delay_s=1.0, p95_delay_s=1.0, total_delay_s=1.0, unfinished=1, max_nongreen_s=26.0)
+    text = json.dumps(to_jsonable(m), allow_nan=False)  # raises if NaN leaked through
+    assert json.loads(text)["transit_s"] is None
+
+
+def test_export_accepts_a_bare_filename(tmp_path, monkeypatch):
+    import sys
+
+    from api import export
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["export", "--seeds", "2", "--out", "sample.js"])
+    export.main()
+    assert (tmp_path / "sample.js").read_text().startswith("window.__REPLAY__=")
+
+
+def test_replay_carries_a_route_per_mode(replay):
+    for key, mode in replay["modes"].items():
+        assert mode["route"][0] == "J0_0" and mode["route"][-1] == "J4_4", key

@@ -7,6 +7,8 @@ This is the core novel logic of the project. See docs/BUILD-PLAN.md Step 4,
 CLAUDE.md section 6.3.
 """
 
+from collections.abc import Callable
+
 from network.generate_grid import Axis, RoadNetwork
 
 
@@ -30,7 +32,12 @@ class CorridorCoordinator:
         horizon_s: float = 60.0,
         max_hold_s: float = 15.0,
         slew_rate: float | None = None,
+        set_shift: Callable[[str, float], None] | None = None,
     ):
+        """`set_shift(junction_id, value)` is where shifts are written. The engine
+        passes its guarded writer (signal-safety and starvation bounds); left
+        unset, the coordinator writes the signal directly."""
+        self._set_shift = set_shift
         self.network = network
         self.horizon_s = horizon_s
         self.max_hold_s = max_hold_s
@@ -50,12 +57,12 @@ class CorridorCoordinator:
             axis = approach_axis_by_junction[junction_id]
 
             if self.slew_rate is None:
-                signal.phase_offset_shift = signal.best_shift_for_green(
+                self._apply(junction_id, signal.best_shift_for_green(
                     axis,
                     t + eta_s,
                     max_shift=self.max_hold_s,
                     anchor=signal.phase_offset_shift,
-                )
+                ))
                 continue
 
             current = signal.phase_offset_shift
@@ -69,4 +76,10 @@ class CorridorCoordinator:
                 anchor=current,
             )
             max_step = self.slew_rate * dt
-            signal.phase_offset_shift = current + max(-max_step, min(max_step, target - current))
+            self._apply(junction_id, current + max(-max_step, min(max_step, target - current)))
+
+    def _apply(self, junction_id: str, value: float) -> None:
+        if self._set_shift is not None:
+            self._set_shift(junction_id, value)
+        else:
+            self.network.junctions[junction_id].signal.phase_offset_shift = value

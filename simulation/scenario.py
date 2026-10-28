@@ -24,6 +24,7 @@ class Scenario:
     recovery_cycles: int = 2
     slew_rate: float | None = None
     reactive_trigger_m: float = 200.0
+    reroute: bool = True
     start: str | None = None  # default: top-left corner
     end: str | None = None  # default: bottom-right corner
 
@@ -61,6 +62,7 @@ def build_engine(scenario: Scenario, mode: RunMode, record_frames: bool = False)
         slew_rate=scenario.slew_rate,
         reactive_trigger_m=scenario.reactive_trigger_m,
         record_frames=record_frames,
+        reroute=scenario.reroute,
     )
 
 

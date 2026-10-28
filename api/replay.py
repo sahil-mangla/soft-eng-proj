@@ -68,15 +68,17 @@ def _eta_json(log: RunLog, route_ids: list[str]) -> dict:
 def build_replay(scenario: Scenario) -> dict:
     evaluator = MetricsEvaluator()
     modes: dict[str, dict] = {}
-    network = route = None
+    network = None
     for mode in RunMode:
         engine, log = run_scenario(scenario, mode, record_frames=True)
         if network is None:
             network = _network_json(engine)
-            route = engine.route.junction_ids
+        route = list(engine.route.junction_ids)  # final route: it can change mid-run
         metrics = evaluator.summarize(log)
         modes[mode.value] = {
             "label": mode.label,
+            "route": route,
+            "reroutes": log.reroutes,
             "metrics": asdict(metrics),
             "frames": _frames_json(log),
             "eta": _eta_json(log, route),
@@ -87,6 +89,6 @@ def build_replay(scenario: Scenario) -> dict:
     return {
         "scenario": asdict(scenario),
         "network": network,
-        "route": route,
+        "route": modes[RunMode.NO_PREEMPTION.value]["route"],
         "modes": modes,
     }

@@ -58,6 +58,10 @@ class ComparisonReport:
 
 
 def estimate(values: list[float]) -> Estimate:
+    """Mean and 95% CI over the finite values. A run that never finished has a NaN
+    transit time; it is left out here (and counted by the caller) instead of
+    turning every aggregate into NaN."""
+    values = [v for v in values if math.isfinite(v)]
     n = len(values)
     if n == 0:
         return Estimate(float("nan"), float("nan"), 0)
@@ -75,7 +79,7 @@ def paired_difference(a: list[float], b: list[float]) -> Estimate:
     background delay is only visible this way."""
     if len(a) != len(b):
         raise ValueError("paired samples must be the same length")
-    return estimate([x - y for x, y in zip(a, b)])
+    return estimate([x - y for x, y in zip(a, b) if math.isfinite(x) and math.isfinite(y)])
 
 
 def percentile(values: list[float], q: float) -> float:

@@ -101,3 +101,24 @@ def test_recovery_with_zero_cycles_resets_instantly():
     mgr = RecoveryManager(recovery_cycles=0)
     mgr.begin_recovery("J0_0", sig)
     assert sig.phase_offset_shift == 0.0 and not mgr.any_active()
+
+
+def test_recovery_skips_junctions_that_were_never_shifted():
+    net = generate_grid(n=2)
+    sig = net.junctions["J0_0"].signal
+    mgr = RecoveryManager(recovery_cycles=2)
+    mgr.begin_recovery("J0_0", sig)
+    assert not mgr.any_active()  # nothing to ease back, so it cannot hold a run open
+
+
+def test_coordinator_and_recovery_write_through_the_supplied_setter():
+    net = generate_grid(n=3)
+    writes = []
+    CorridorCoordinator(net, set_shift=lambda j, v: writes.append((j, v))).coordinate(0.0, {"J0_1": 20.0}, {"J0_1": "EW"})
+    assert writes and net.junctions["J0_1"].signal.phase_offset_shift == 0.0  # the signal itself was not touched
+    sig = net.junctions["J0_0"].signal
+    sig.phase_offset_shift = 8.0
+    mgr = RecoveryManager(recovery_cycles=1, set_shift=lambda j, v: writes.append((j, v)))
+    mgr.begin_recovery("J0_0", sig)
+    mgr.step("J0_0", sig, 1.0)
+    assert writes[-1][0] == "J0_0" and sig.phase_offset_shift == 8.0

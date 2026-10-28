@@ -41,6 +41,12 @@ class CyclePlan:
     def cycle_length(self) -> float:
         return 2 * self.half_cycle
 
+    def nongreen_remaining(self, axis: Axis, t: float) -> float:
+        """Seconds from t until `axis` next shows green (0 if it is green now)."""
+        start = 0.0 if axis == "NS" else self.half_cycle
+        q = (t - start) % self.cycle_length
+        return 0.0 if q < self.green_duration else self.cycle_length - q
+
     def phase_at(self, t: float) -> dict[Axis, SignalState]:
         """The *unshifted* fixed-cycle phase for both axes at time t."""
         phase_t = t % self.cycle_length
@@ -98,8 +104,8 @@ class Signal:
         cycle = self.cycle_plan
         low = -max_shift if lo is None else max(lo, -max_shift)
         high = max_shift if hi is None else min(hi, max_shift)
-        if low > high:
-            return (low + high) / 2.0
+        if not (low <= high):  # also catches NaN bounds
+            return 0.0 if (low != low or high != high) else (low + high) / 2.0
 
         n = int(max_shift / step + 1e-9)
         grid = {0.0} | {k * step for k in range(1, n + 1)} | {-k * step for k in range(1, n + 1)}
@@ -107,6 +113,8 @@ class Signal:
             (c for c in grid | {low, high, anchor} if low - 1e-9 <= c <= high + 1e-9),
             key=lambda c: (round(abs(c - anchor), 9), abs(c), c < 0),
         )
+        if not candidates:  # a non-finite band: stay where we are
+            return 0.0
         best_shift = candidates[0]
         best_score = -1
         for c in candidates:

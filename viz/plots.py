@@ -52,9 +52,9 @@ def plot_signal_timeline(
     line crosses each row."""
     fig, ax = plt.subplots(figsize=(11, 0.55 * len(junction_ids) + 1.4))
 
-    for i, _ in enumerate(junction_ids):
+    for i, junction_id in enumerate(junction_ids):
         for state, color in _STATE_COLORS.items():
-            spans = _state_spans(log, i, state)
+            spans = _state_spans(log, junction_id, state)
             ax.broken_barh(spans, (i - 0.4, 0.8), facecolors=color, linewidth=0)
 
     times = [tick.t for tick in log.ticks]
@@ -122,13 +122,13 @@ def plot_sweep(
     _save(fig, out_path)
 
 
-def _state_spans(log: RunLog, junction_index: int, state: str) -> list[tuple[float, float]]:
+def _state_spans(log: RunLog, junction_id: str, state: str) -> list[tuple[float, float]]:
     spans: list[tuple[float, float]] = []
     start: float | None = None
     prev_t = 0.0
     dt = log.ticks[1].t - log.ticks[0].t if len(log.ticks) > 1 else 1.0
     for tick in log.ticks:
-        active = tick.approach_states[junction_index] == state
+        active = tick.approach_states.get(junction_id) == state
         if active and start is None:
             start = tick.t
         elif not active and start is not None:

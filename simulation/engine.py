@@ -5,11 +5,24 @@ the comparison in CLAUDE.md section 7 fair, since every mode runs through the
 identical tick loop and only differs in how a junction's
 Signal.phase_offset_shift gets set.
 
+Every shift write — coordinator, naive reactive, recovery, resets — goes
+through `_set_shift`, which enforces two things:
+
+* **Signal safety (all modes).** A write may not make a signal skip its
+  yellow: green may only give way to yellow, yellow to red, and red to green.
+  A change that would break that is applied as far as it legally can be and
+  finished on a later tick, once the signal is at a point where it is legal.
+* **Bounded cross-traffic wait (corridor modes).** No signal may show a
+  non-green to one direction for longer than the fixed cycle's own stretch
+  plus `corridor_max_hold_s`. The naive reactive baseline deliberately has no
+  such bound (it is the "existing systems" comparison point, CLAUDE.md 6.5).
+
 A run continues past the ambulance's arrival until every background vehicle
 has finished (and any recovery has completed), so background delay is
 measured over the same vehicle population in every mode.
 """
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -28,6 +41,12 @@ from simulation.traffic_agents import (
 REACTIVE_TRIGGER_DISTANCE_M = 200.0  # CLAUDE.md 6.5: naive baseline reacts within ~200m
 
 _STATE_CHAR = {SignalState.GREEN: "G", SignalState.YELLOW: "Y", SignalState.RED: "R"}
+# Transitions a real controller never makes at the moment a shift is applied.
+_ILLEGAL_CHANGES = {
+    (SignalState.GREEN, SignalState.RED),  # skips the yellow
+    (SignalState.RED, SignalState.YELLOW),
+    (SignalState.YELLOW, SignalState.GREEN),  # yellow cannot be taken back
+}
 
 
 class RunMode(Enum):
@@ -60,8 +79,9 @@ class TickRecord:
     t: float
     ambulance_junction: str
     junction_shifts: dict[str, float]
-    # One G/Y/R char per route junction, for the axis the ambulance approaches on.
-    approach_states: str = ""
+    # junction id -> G/Y/R for the axis the ambulance approaches by, for the
+    # junctions on the route at that moment (the route can change mid-run).
+    approach_states: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -89,8 +109,9 @@ class RunLog:
     eta_samples: list[tuple[float, str, float]] = field(default_factory=list)
     actual_arrival_s: dict[str, float] = field(default_factory=dict)
     # Longest stretch (s) any signal showed a non-green to one axis. A fixed
-    # cycle gives cycle - green; preemption that starves cross traffic exceeds it.
+    # cycle gives cycle - green; corridor modes are bounded by that plus max hold.
     max_nongreen_s: float = 0.0
+    reroutes: int = 0
 
 
 class SimulationEngine:
@@ -110,6 +131,8 @@ class SimulationEngine:
         slew_rate: float | None = None,
         reactive_trigger_m: float = REACTIVE_TRIGGER_DISTANCE_M,
         record_frames: bool = False,
+        reroute: bool = True,
+        reroute_gain: float = 0.10,
     ):
         if ambulance_start == ambulance_end:
             raise ValueError("ambulance_start and ambulance_end must differ")
@@ -119,9 +142,13 @@ class SimulationEngine:
         self.max_ticks = max_ticks
         self.reactive_trigger_m = reactive_trigger_m
         self.record_frames = record_frames
+        self.max_hold_s = corridor_max_hold_s
+        self.reroute = reroute
+        self.reroute_gain = reroute_gain
+        self._end = ambulance_end
 
         self.route: Route = compute_route(network, ambulance_start, ambulance_end)
-        self.ambulance = Ambulance(id="ambulance", route=self.route.junction_ids)
+        self.ambulance = Ambulance(id="ambulance", route=list(self.route.junction_ids))
         self.background_vehicles: list[BackgroundVehicle] = spawn_background_traffic(
             network, count=background_vehicle_count, seed=seed
         )
@@ -132,19 +159,21 @@ class SimulationEngine:
             horizon_s=corridor_horizon_s,
             max_hold_s=corridor_max_hold_s,
             slew_rate=slew_rate,
+            set_shift=self._set_shift,
         )
-        self.recovery_manager = RecoveryManager(recovery_cycles=recovery_cycles)
+        self.recovery_manager = RecoveryManager(recovery_cycles=recovery_cycles, set_shift=self._set_shift)
 
-        self._approach_axis_by_junction: dict[str, Axis] = {
-            self.route.junction_ids[i + 1]: edge.axis
-            for i, edge in enumerate(self.route.edges)
-        }
+        self._approach_axis_by_junction: dict[str, Axis] = self._axes_for(self.route)
         self._junction_order = list(network.junctions)
-        self._passed_junctions: set[str] = set()
+        self._released: set[str] = set()  # junctions whose shift is being returned to zero
         self._nongreen_run_s: dict[tuple[str, Axis], float] = {}
+        self._now = 0.0
         self.time = 0.0
         self._tick_count = 0
         self.log = RunLog(mode=mode)
+
+    def _axes_for(self, route: Route) -> dict[str, Axis]:
+        return {route.junction_ids[i + 1]: edge.axis for i, edge in enumerate(route.edges)}
 
     def run(self) -> RunLog:
         while self._tick_count < self.max_ticks and not self._done():
@@ -157,10 +186,22 @@ class SimulationEngine:
             self.ambulance.finished
             and all(v.finished for v in self.background_vehicles)
             and not self.recovery_manager.any_active()
+            and not self._unreturned()
         )
+
+    def _unreturned(self) -> list[str]:
+        """Released junctions whose shift is not yet back at zero (and not easing back)."""
+        return [
+            jid for jid in self._released
+            if not self.recovery_manager.is_recovering(jid)
+            and abs(self.network.junctions[jid].signal.phase_offset_shift) > 1e-9
+        ]
+
+    # ------------------------------------------------------------------ tick
 
     def _tick(self) -> None:
         t = self.time
+        self._now = t
 
         etas = {}
         if not self.ambulance.finished:
@@ -175,6 +216,13 @@ class SimulationEngine:
         elif self.mode == RunMode.NAIVE_REACTIVE and not self.ambulance.finished:
             self._apply_naive_reactive(t)
 
+        if self.mode == RunMode.CORRIDOR_RECOVERY:
+            for junction_id in self._released:
+                if self.recovery_manager.is_recovering(junction_id):
+                    self.recovery_manager.step(junction_id, self.network.junctions[junction_id].signal, self.dt)
+        for junction_id in self._unreturned():  # a reset that was held back earlier
+            self._set_shift(junction_id, 0.0)
+
         self._track_starvation(t)
 
         for vehicle in self.background_vehicles:
@@ -186,37 +234,74 @@ class SimulationEngine:
         if cleared is not None:
             self.log.actual_arrival_s[cleared] = t
             self._release_junction(cleared)
+            self._maybe_reroute()
         if self.ambulance.finished and not was_finished:
             self.log.ambulance_transit_time_s = self.ambulance.finished_tick
             self.log.actual_arrival_s[self.route.junction_ids[-1]] = self.ambulance.finished_tick
             # The destination (and anything still ahead) has no further use
             # for a preemption shift; release it the same way as a cleared one.
             for junction_id in self.route.junction_ids:
-                if junction_id not in self._passed_junctions:
+                if junction_id not in self._released:
                     self._release_junction(junction_id)
-
-        if self.mode == RunMode.CORRIDOR_RECOVERY:
-            for junction_id in self._passed_junctions:
-                if self.recovery_manager.is_recovering(junction_id):
-                    self.recovery_manager.step(
-                        junction_id, self.network.junctions[junction_id].signal, self.dt
-                    )
 
         self._log_tick(t)
         self.time += self.dt
         self._tick_count += 1
 
-    def _release_junction(self, junction_id: str) -> None:
-        self._passed_junctions.add(junction_id)
+    # ----------------------------------------------------- shift write path
+
+    def _set_shift(self, junction_id: str, target: float) -> None:
+        """Move a junction's phase shift toward `target`, as far as is admissible
+        right now (1 s at a time); the rest happens on a later tick."""
         signal = self.network.junctions[junction_id].signal
+        current = signal.phase_offset_shift
+        if target == current:
+            return
+        direction = 1.0 if target > current else -1.0
+        steps = max(1, math.ceil(abs(target - current) - 1e-9))
+        best = current
+        for k in range(1, steps + 1):
+            candidate = target if k == steps else current + direction * k
+            if not self._admissible(junction_id, current, candidate):
+                break
+            best = candidate
+        signal.phase_offset_shift = best
+
+    def _admissible(self, junction_id: str, old: float, candidate: float) -> bool:
+        plan = self.network.junctions[junction_id].signal.cycle_plan
+        t = self._now
+        # What was displayed last tick, against what this write would display now: the
+        # pair a driver actually sees. (Comparing both shifts at the same instant would miss
+        # a yellow that natural time evolution used up and the write then cut short.)
+        before, after = plan.phase_at(t - self.dt + old), plan.phase_at(t + candidate)
+        if any((before[axis], after[axis]) in _ILLEGAL_CHANGES for axis in ("NS", "EW")):
+            return False
+        if not self.mode.is_corridor:
+            return True  # the naive baseline is not bounded (see module docstring)
+        cap = plan.cycle_length - plan.green_duration + self.max_hold_s
+        for axis in ("NS", "EW"):
+            remaining = plan.nongreen_remaining(axis, t + candidate)
+            if remaining <= 0.0:
+                continue
+            run_so_far = self._nongreen_run_s.get((junction_id, axis), 0.0)
+            if run_so_far + math.ceil(remaining / self.dt - 1e-9) * self.dt > cap + 1e-9:
+                return False
+        return True
+
+    def _release_junction(self, junction_id: str) -> None:
+        """The ambulance is done with this junction: return its signal to schedule."""
+        self._released.add(junction_id)
+        signal = self.network.junctions[junction_id].signal
+        if abs(signal.phase_offset_shift) < 1e-9:
+            return
         if self.mode == RunMode.CORRIDOR_RECOVERY:
-            self.recovery_manager.begin_recovery(junction_id, signal)
+            self.recovery_manager.begin_recovery(junction_id, signal)  # eases back over N cycles
         else:
-            signal.phase_offset_shift = 0.0  # instant reset, no easing
+            self._set_shift(junction_id, 0.0)  # instant reset, no easing (completed on a later tick if held back)
 
     def _apply_naive_reactive(self, t: float) -> None:
         next_junction_id = self.ambulance.next_junction
-        if next_junction_id in self._passed_junctions:
+        if next_junction_id in self._released:
             return
         edge = self.network.edge(self.ambulance.current_junction, next_junction_id)
         remaining_m = edge.length_m - self.ambulance.distance_into_edge_m
@@ -233,7 +318,40 @@ class SimulationEngine:
             max_shift=junction.signal.cycle_plan.cycle_length,
             anchor=junction.signal.phase_offset_shift,
         )
-        junction.signal.phase_offset_shift = shift
+        self._set_shift(next_junction_id, shift)
+
+    # --------------------------------------------------------------- routing
+
+    def _tail_time_s(self, junction_ids: list[str]) -> float:
+        total = 0.0
+        for u, v in zip(junction_ids[:-1], junction_ids[1:]):
+            edge = self.network.edge(u, v)
+            total += edge.length_m / edge.current_speed_mps()
+        return total
+
+    def _maybe_reroute(self) -> None:
+        """CLAUDE.md 6.1: recompute the route when conditions change materially.
+        Checked each time the ambulance enters a new road; the route only changes
+        when the new remainder is at least `reroute_gain` faster at current speeds."""
+        amb = self.ambulance
+        if not self.reroute or amb.finished or amb.next_junction == self._end:
+            return
+        ahead = amb.next_junction
+        old_tail = amb.route[amb.edge_index + 1 :]
+        new_tail = compute_route(self.network, ahead, self._end).junction_ids
+        if new_tail == old_tail:
+            return
+        if self._tail_time_s(new_tail) >= self._tail_time_s(old_tail) * (1.0 - self.reroute_gain):
+            return
+        amb.route = amb.route[: amb.edge_index + 1] + new_tail
+        self.route = Route(junction_ids=list(amb.route), network=self.network)
+        self._approach_axis_by_junction = self._axes_for(self.route)
+        self.log.reroutes += 1
+        for junction_id in set(old_tail) - set(new_tail):
+            if junction_id not in self._released:
+                self._release_junction(junction_id)  # no longer needed: ease it back
+
+    # ------------------------------------------------------------- recording
 
     def _track_starvation(self, t: float) -> None:
         for junction_id, junction in self.network.junctions.items():
@@ -249,18 +367,15 @@ class SimulationEngine:
     def _log_tick(self, t: float) -> None:
         route_ids = self.route.junction_ids
         shifts = {jid: self.network.junctions[jid].signal.phase_offset_shift for jid in route_ids}
-        axes = [self._approach_axis_by_junction.get(jid, self.route.edges[0].axis) for jid in route_ids]
-        approach = "".join(
-            _STATE_CHAR[self.network.junctions[jid].signal.state_for_axis(axis, t)]
-            for jid, axis in zip(route_ids, axes)
-        )
+        first_axis = self.route.edges[0].axis
+        approach = {
+            jid: _STATE_CHAR[
+                self.network.junctions[jid].signal.state_for_axis(self._approach_axis_by_junction.get(jid, first_axis), t)
+            ]
+            for jid in route_ids
+        }
         self.log.ticks.append(
-            TickRecord(
-                t=t,
-                ambulance_junction=self.ambulance.current_junction,
-                junction_shifts=shifts,
-                approach_states=approach,
-            )
+            TickRecord(t=t, ambulance_junction=self.ambulance.current_junction, junction_shifts=shifts, approach_states=approach)
         )
         if self.record_frames:
             self.log.frames.append(self._frame(t))
@@ -278,12 +393,8 @@ class SimulationEngine:
             for v in self.background_vehicles
             if v.started and not v.finished
         ]
-        ns = "".join(
-            _STATE_CHAR[net.junctions[j].signal.state_for_axis("NS", t)] for j in self._junction_order
-        )
-        ew = "".join(
-            _STATE_CHAR[net.junctions[j].signal.state_for_axis("EW", t)] for j in self._junction_order
-        )
+        ns = "".join(_STATE_CHAR[net.junctions[j].signal.state_for_axis("NS", t)] for j in self._junction_order)
+        ew = "".join(_STATE_CHAR[net.junctions[j].signal.state_for_axis("EW", t)] for j in self._junction_order)
         shifts = [net.junctions[j].signal.phase_offset_shift for j in self._junction_order]
         return Frame(t=t, ambulance=where(self.ambulance), background=background, ns=ns, ew=ew, shifts=shifts)
 

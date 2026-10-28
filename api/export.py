@@ -10,7 +10,8 @@ import json
 import os
 
 from api.replay import build_replay
-from metrics.sweep import ALL_MODES, _jsonable, compare_modes
+from metrics.serialize import to_jsonable
+from metrics.sweep import ALL_MODES, compare_modes
 from simulation.scenario import Scenario
 
 
@@ -20,16 +21,16 @@ def main() -> None:
     parser.add_argument("--out", default="frontend/data/sample.js")
     args = parser.parse_args()
 
+    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)  # fail early, before the simulations
     scenario = Scenario()
     replay = build_replay(scenario)
     compare = {
         "seeds": args.seeds,
-        "modes": _jsonable(compare_modes(scenario, list(range(args.seeds)), ALL_MODES)),
+        "modes": to_jsonable(compare_modes(scenario, list(range(args.seeds)), ALL_MODES)),
     }
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w") as f:
-        f.write("window.__REPLAY__=" + json.dumps(replay, separators=(",", ":")) + ";\n")
-        f.write("window.__COMPARE__=" + json.dumps(compare, separators=(",", ":"), default=str) + ";\n")
+        f.write("window.__REPLAY__=" + json.dumps(to_jsonable(replay), separators=(",", ":"), allow_nan=False) + ";\n")
+        f.write("window.__COMPARE__=" + json.dumps(to_jsonable(compare), separators=(",", ":"), allow_nan=False) + ";\n")
     print(f"wrote {args.out} ({os.path.getsize(args.out) / 1e6:.2f} MB)")
 
 

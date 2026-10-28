@@ -5,6 +5,7 @@ reset), so vehicles queued during preemption clear out first.
 See docs/BUILD-PLAN.md Step 5, CLAUDE.md section 6.4.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from network.generate_grid import Signal
@@ -24,16 +25,29 @@ class RecoveryManager:
     recovery over a snap-back.
     """
 
-    def __init__(self, recovery_cycles: int = 2):
+    def __init__(
+        self,
+        recovery_cycles: int = 2,
+        set_shift: Callable[[str, float], None] | None = None,
+    ):
         self.recovery_cycles = recovery_cycles
+        self._set_shift = set_shift
         self._active: dict[str, _RecoveryState] = {}
+
+    def _apply(self, junction_id: str, signal: Signal, value: float) -> None:
+        if self._set_shift is not None:
+            self._set_shift(junction_id, value)
+        else:
+            signal.phase_offset_shift = value
 
     def begin_recovery(self, junction_id: str, signal: Signal) -> None:
         if junction_id in self._active:
             return
+        if abs(signal.phase_offset_shift) < 1e-9:
+            return  # never shifted: nothing to ease back, and no reason to keep the run alive
         duration_s = self.recovery_cycles * signal.cycle_plan.cycle_length
         if duration_s <= 0.0:
-            signal.phase_offset_shift = 0.0  # recovery_cycles=0: instant reset
+            self._apply(junction_id, signal, 0.0)  # recovery_cycles=0: instant reset
             return
         self._active[junction_id] = _RecoveryState(
             initial_shift=signal.phase_offset_shift, duration_s=duration_s
@@ -45,7 +59,7 @@ class RecoveryManager:
             return
         state.elapsed_s += dt
         fraction_remaining = max(0.0, 1.0 - state.elapsed_s / state.duration_s)
-        signal.phase_offset_shift = state.initial_shift * fraction_remaining
+        self._apply(junction_id, signal, state.initial_shift * fraction_remaining)
         if fraction_remaining <= 0.0:
             del self._active[junction_id]
 

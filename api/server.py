@@ -15,15 +15,21 @@ ask for an unbounded amount of simulation.
 """
 
 import argparse
+import atexit
 import json
+import math
 import mimetypes
 import os
+import sys
+import threading
+from concurrent.futures import ProcessPoolExecutor
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from api.replay import build_replay
-from metrics.sweep import ALL_MODES, _jsonable, compare_modes
+from metrics.serialize import to_jsonable
+from metrics.sweep import ALL_MODES, compare_modes
 from simulation.scenario import Scenario
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,19 +37,42 @@ FRONTEND_DIR = os.path.join(ROOT, "frontend")
 SUITE_PATH = os.path.join(ROOT, "outputs", "sweep_results.json")
 
 
+_pool: ProcessPoolExecutor | None = None
+_pool_lock = threading.Lock()
+_compare_slots = threading.Semaphore(2)  # at most two comparisons run at once; the rest wait
+
+
+def _shared_pool() -> ProcessPoolExecutor:
+    """One process pool for the whole server, so concurrent /api/compare requests
+    share the CPUs instead of each spawning their own."""
+    global _pool
+    with _pool_lock:
+        if _pool is None:
+            _pool = ProcessPoolExecutor(max_workers=os.cpu_count() or 2)
+            atexit.register(_pool.shutdown, wait=False, cancel_futures=True)
+        return _pool
+
+
+def _finite(key: str, raw: str, cast):
+    try:
+        value = cast(raw)
+    except (ValueError, OverflowError):
+        raise ValueError(f"{key} must be a number")
+    if not math.isfinite(value):
+        raise ValueError(f"{key} must be a finite number")
+    return value
+
+
 def _num(q: dict, key: str, cast, lo, hi, default):
     raw = q.get(key, [""])[0]
     if raw == "":
         return default
-    try:
-        return min(max(cast(raw), lo), hi)
-    except ValueError:
-        raise ValueError(f"{key} must be a number")
+    return min(max(_finite(key, raw, cast), lo), hi)
 
 
 def scenario_from_query(q: dict) -> Scenario:
     slew_raw = q.get("slew", [""])[0]
-    slew = None if slew_raw in ("", "off", "none") else min(max(float(slew_raw), 0.02), 1.0)
+    slew = None if slew_raw in ("", "off", "none") else min(max(_finite("slew", slew_raw, float), 0.02), 1.0)
     d = Scenario()
     return Scenario(
         grid_size=_num(q, "grid", int, 3, 8, d.grid_size),
@@ -63,8 +92,9 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # quiet
         pass
 
+
     def _json(self, payload, status=HTTPStatus.OK):
-        body = json.dumps(payload, separators=(",", ":"), default=str).encode()
+        body = json.dumps(to_jsonable(payload), separators=(",", ":"), allow_nan=False).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -80,8 +110,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(build_replay(scenario_from_query(q)))
             if url.path == "/api/compare":
                 seeds = _num(q, "seeds", int, 2, 40, 12)
-                result = compare_modes(scenario_from_query(q), list(range(seeds)), ALL_MODES)
-                return self._json({"seeds": seeds, "modes": _jsonable(result)})
+                scenario = scenario_from_query(q)
+                with _compare_slots:
+                    result = compare_modes(scenario, list(range(seeds)), ALL_MODES, executor=_shared_pool())
+                return self._json({"seeds": seeds, "modes": result})
             if url.path == "/api/suite":
                 if not os.path.exists(SUITE_PATH):
                     return self._json({"error": "run python -m metrics.sweep first"}, HTTPStatus.NOT_FOUND)
@@ -89,6 +121,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(json.load(f))
         except ValueError as e:
             return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
+        except Exception as e:  # a simulation bug must not drop the connection
+            print(f"{self.path}: {type(e).__name__}: {e}", file=sys.stderr)
+            return self._json({"error": "The simulation failed for these settings."}, HTTPStatus.INTERNAL_SERVER_ERROR)
         return self._static(url.path)
 
     def _static(self, path: str):

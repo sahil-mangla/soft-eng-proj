@@ -54,15 +54,16 @@ def test_signals_return_to_schedule_after_run():
     assert all(abs(j.signal.phase_offset_shift) < 1e-6 for j in engine.network.junctions.values())
 
 
-def test_naive_resets_instantly_while_recovery_eases():
-    def shifts_after_first_clear(mode):
+def test_naive_resets_promptly_while_recovery_eases():
+    def shifts_after_first_clear(mode, ticks):
         engine, log = run_scenario(SC, mode)
         first = engine.route.junction_ids[1]
         cleared_t = int(log.actual_arrival_s[first])
-        return [log.ticks[i].junction_shifts[first] for i in range(cleared_t + 1, cleared_t + 6)]
+        return [log.ticks[i].junction_shifts.get(first, 0.0) for i in range(cleared_t + 1, cleared_t + 1 + ticks)]
 
-    assert all(s == 0.0 for s in shifts_after_first_clear(RunMode.NAIVE_REACTIVE))
-    eased = [abs(s) for s in shifts_after_first_clear(RunMode.CORRIDOR_RECOVERY)]
+    # naive goes back to schedule within one signal cycle (held back only until the change is legal)
+    assert shifts_after_first_clear(RunMode.NAIVE_REACTIVE, 50)[-1] == 0.0
+    eased = [abs(s) for s in shifts_after_first_clear(RunMode.CORRIDOR_RECOVERY, 6)]
     assert eased == sorted(eased, reverse=True)  # decays monotonically, never jumps up
 
 
@@ -111,3 +112,68 @@ def test_estimate_and_paired_difference():
 def test_percentile():
     assert percentile([1, 2, 3, 4, 5], 0.5) == 3
     assert percentile([], 0.9) == 0.0
+
+
+# --- review fixes -------------------------------------------------------------
+
+@pytest.mark.parametrize("hold", [5.0, 15.0])
+def test_corridor_never_starves_a_direction_beyond_cycle_plus_hold(hold):
+    cap = 46 - 20 + hold  # fixed non-green stretch plus the allowed hold
+    for seed in range(6):
+        for mode in (RunMode.CORRIDOR_NO_RECOVERY, RunMode.CORRIDOR_RECOVERY):
+            _, log = run_scenario(Scenario(background_vehicles=80, seed=seed, corridor_max_hold_s=hold), mode)
+            assert log.max_nongreen_s <= cap + 1e-9, (seed, mode, log.max_nongreen_s)
+
+
+@pytest.mark.parametrize("mode", list(RunMode))
+def test_signals_never_skip_a_yellow(mode):
+    _, log = run_scenario(Scenario(background_vehicles=60, seed=2), mode, record_frames=True)
+    illegal = {("G", "R"), ("R", "Y"), ("Y", "G")}
+    for prev, cur in zip(log.frames, log.frames[1:]):
+        for before, after in ((prev.ns, cur.ns), (prev.ew, cur.ew)):
+            changes = set(zip(before, after))
+            assert not (changes & illegal), (mode, cur.t, changes & illegal)
+
+
+def _engine_with_congested_tail():
+    engine = build_engine(Scenario(background_vehicles=0), RunMode.NO_PREEMPTION)
+    tail = engine.ambulance.route[1:]
+    for u, v in zip(tail[:-1], tail[1:]):
+        engine.network.edge(u, v).vehicle_count = 60
+    return engine
+
+
+def test_ambulance_reroutes_when_the_road_ahead_gets_congested():
+    engine = _engine_with_congested_tail()
+    before = list(engine.route.junction_ids)
+    engine._maybe_reroute()
+    assert engine.log.reroutes == 1
+    after = engine.route.junction_ids
+    assert after != before and after[0] == before[0] and after[-1] == before[-1]
+    assert engine.ambulance.route == after
+    assert set(after[:2]) == set(before[:2])  # what it has already committed to is kept
+
+
+def test_no_reroute_when_disabled_or_not_materially_better():
+    engine = _engine_with_congested_tail()
+    engine.reroute = False
+    engine._maybe_reroute()
+    assert engine.log.reroutes == 0
+    calm = build_engine(Scenario(background_vehicles=0), RunMode.NO_PREEMPTION)
+    calm._maybe_reroute()  # equal-length alternatives are not a reason to switch
+    assert calm.log.reroutes == 0
+
+
+def test_idle_corridor_recovery_does_not_pad_the_run():
+    quiet = Scenario(background_vehicles=0)
+    ends = {m: run_scenario(quiet, m)[1].end_time_s for m in (RunMode.NO_PREEMPTION, RunMode.CORRIDOR_RECOVERY)}
+    assert ends[RunMode.CORRIDOR_RECOVERY] <= ends[RunMode.NO_PREEMPTION] + 1.0
+
+
+def test_estimates_ignore_runs_that_never_finished():
+    nan = float("nan")
+    e = estimate([10.0, nan, 14.0])
+    assert e.mean == 12.0 and e.n == 2
+    d = paired_difference([10.0, nan, 14.0], [8.0, 9.0, 12.0])
+    assert d.mean == 2.0 and d.n == 2
+    assert math.isnan(estimate([nan]).mean)

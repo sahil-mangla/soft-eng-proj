@@ -13,9 +13,11 @@ import argparse
 import json
 import os
 from concurrent.futures import ProcessPoolExecutor
+import math
 from dataclasses import asdict, dataclass
 
 from metrics.evaluate import Estimate, MetricsEvaluator, ModeMetrics, estimate, paired_difference
+from metrics.serialize import to_jsonable
 from simulation.engine import RunMode
 from simulation.scenario import Scenario, run_scenario
 
@@ -28,9 +30,17 @@ def _run_one(args: tuple[Scenario, RunMode]) -> ModeMetrics:
     return MetricsEvaluator().summarize(log)
 
 
-def run_many(jobs: list[tuple[Scenario, RunMode]], workers: int | None = None) -> list[ModeMetrics]:
+def run_many(
+    jobs: list[tuple[Scenario, RunMode]],
+    workers: int | None = None,
+    executor: ProcessPoolExecutor | None = None,
+) -> list[ModeMetrics]:
+    """Runs every job. A caller that serves many requests (the API) passes one
+    long-lived `executor` so each request does not spawn its own process pool."""
     if workers == 1 or len(jobs) < 8:
         return [_run_one(j) for j in jobs]
+    if executor is not None:
+        return list(executor.map(_run_one, jobs, chunksize=4))
     with ProcessPoolExecutor(max_workers=workers) as pool:
         return list(pool.map(_run_one, jobs, chunksize=4))
 
@@ -49,6 +59,7 @@ class ModeSummary:
     transit_samples: list[float] | None = None
     delay_samples: list[float] | None = None
     max_nongreen_samples: list[float] | None = None
+    unfinished_runs: int = 0  # runs whose ambulance never arrived; left out of the estimates
 
 
 def compare_modes(
@@ -57,9 +68,10 @@ def compare_modes(
     modes: tuple[RunMode, ...] = ALL_MODES,
     reference: RunMode = RunMode.NO_PREEMPTION,
     workers: int | None = None,
+    executor: ProcessPoolExecutor | None = None,
 ) -> dict[RunMode, ModeSummary]:
     jobs = [(scenario.with_(seed=s), m) for m in modes for s in seeds]
-    results = run_many(jobs, workers)
+    results = run_many(jobs, workers, executor)
     by_mode: dict[RunMode, list[ModeMetrics]] = {
         m: results[i * len(seeds) : (i + 1) * len(seeds)] for i, m in enumerate(modes)
     }
@@ -75,6 +87,7 @@ def compare_modes(
             transit_samples=[r.transit_s for r in rows],
             delay_samples=[r.avg_delay_s for r in rows],
             max_nongreen_samples=[r.max_nongreen_s for r in rows],
+            unfinished_runs=sum(1 for r in rows if not math.isfinite(r.transit_s)),
         )
         if ref is not None and mode != reference:
             summary.transit_vs_ref = paired_difference([r.transit_s for r in rows], [r.transit_s for r in ref])
@@ -95,14 +108,6 @@ def sweep_parameter(
     return {
         str(v): compare_modes(base.with_(**{name: v}), seeds, modes, workers=workers) for v in values
     }
-
-
-def _jsonable(obj):
-    if isinstance(obj, dict):
-        return {(k.value if isinstance(k, RunMode) else str(k)): _jsonable(v) for k, v in obj.items()}
-    if hasattr(obj, "__dataclass_fields__"):
-        return _jsonable(asdict(obj))
-    return obj
 
 
 def run_standard_suite(seeds: list[int], base: Scenario, workers: int | None = None) -> dict:
@@ -151,7 +156,7 @@ def main() -> None:
     os.makedirs(args.out, exist_ok=True)
     path = os.path.join(args.out, "sweep_results.json")
     with open(path, "w") as f:
-        json.dump(_jsonable(suite), f, indent=2, default=str)
+        json.dump(to_jsonable(suite), f, indent=2, allow_nan=False)
     print(f"wrote {path}")
 
     print(f"\n{'mode':<24}{'transit (s)':>16}{'avg bg delay (s)':>20}{'max non-green (s)':>20}")
