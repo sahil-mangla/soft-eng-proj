@@ -1,4 +1,4 @@
-# Results (simulation v3)
+# Results (simulation v3 plus the arterial experiment)
 
 Reproduce: `python -m metrics.sweep --seeds 24` (writes `outputs/sweep_results.json`).
 Scenario: 5×5 grid, 400 m edges, 20 s green / 3 s yellow, 80 background vehicles,
@@ -42,6 +42,30 @@ Recovery against no recovery: −0.1 ± 0.9 s transit, +0.2 ± 0.2 s delay.
 8. **ETA prediction works**: mean absolute error 0.5 s at arrival, 1.0 s at 10–20 s out,
    3.5 s at 30–45 s, 6.9 s at 60–90 s (corridor mode, seed 42).
 
+## Arterial-demand experiment (is the tie caused by the model?)
+
+Random-walk background traffic never queues on the ambulance's path, so an early green has little to clear. `Scenario.arterial_share` makes that fraction of the traffic drive the ambulance's own corridor (in its direction, spawning over 120 s) and the experiment turns **re-routing off**, so the ambulance has to go through the queues it meets. 24 seeds each.
+
+200 background vehicles:
+
+| Arterial share | No preemption (s) | Naive (s) | Corridor + recovery (s) | Corridor − naive, transit | Corridor − naive, delay | Worst wait, naive / corridor |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0% | 329.9 | 305.0 | 305.5 | +0.5 ± 2.3 | +0.16 ± 0.22 | 44 / 41 |
+| 25% | 487.4 | 475.5 | 469.4 | −6.1 ± 7.8 | −0.10 ± 0.47 | 49 / 41 |
+| 50% | 622.1 | 604.0 | 597.5 | **−6.5 ± 4.0** | **−0.56 ± 0.30** | 50 / 41 |
+| 80% | 778.0 | 763.2 | 760.7 | −2.5 ± 4.3 | −0.61 ± 0.54 | 56 / 41 |
+
+80 background vehicles:
+
+| Arterial share | No preemption (s) | Naive (s) | Corridor + recovery (s) | Corridor − naive, transit | Corridor − naive, delay | Worst wait, naive / corridor |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0% | 307.9 | 260.8 | 260.6 | −0.2 ± 2.6 | +0.55 ± 0.38 | 39 / 41 |
+| 25% | 350.7 | 332.2 | 333.0 | +0.8 ± 6.3 | +0.31 ± 0.69 | 40 / 41 |
+| 50% | 399.7 | 391.6 | 390.8 | −0.8 ± 1.7 | −0.20 ± 0.71 | 47 / 41 |
+| 80% | 473.2 | 463.1 | 460.2 | −2.9 ± 7.3 | −0.98 ± 1.21 | 50 / 41 |
+
+**Reading it.** In one cell of eight (200 vehicles, half on the corridor) the corridor is faster than naive reactive by 6.5 ± 4.0 s (about 1%) and also delays background traffic 0.56 ± 0.30 s less; both intervals exclude zero. The sign favours the corridor in six of eight transit comparisons but the other intervals include zero, and with eight comparisons one nominally significant cell is modest evidence. The unambiguous result is the wait: naive's worst wait climbs from 44 s to 56 s as arterial demand grows, while the corridor's stays at its cap of 41 s. Under heavy demand the ambulance is stuck in the same queues (it cannot overtake in this model), so preemption of any kind helps little; with re-routing on, it drives around the congestion and the modes tie again. A model with overtaking and realistic car-following (SUMO) is the right next test.
+
 ## Model rules that shape these numbers
 
 - The ambulance does not count itself as congestion (M1); delay is measured on every
@@ -59,5 +83,5 @@ Recovery against no recovery: −0.1 ± 0.9 s transit, +0.2 ± 0.2 s delay.
 - Vehicles interact only through queue order and a density-based speed.
 - Background vehicles random-walk; there is no arterial demand.
 - One network. Re-routing exists but is only checked at junctions.
-- The thesis (predictive beats reactive) is not supported by this simulator. A higher
+- The thesis (predictive beats reactive) is supported only weakly: one heavy-demand setting of eight. A higher
   fidelity model (SUMO, per decision D1) is the natural next test before drawing conclusions.

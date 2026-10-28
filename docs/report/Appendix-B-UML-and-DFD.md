@@ -1,19 +1,21 @@
-# Chapter 4 – System Design (DFD, Use Case, Activity, Sequence, Class)
+# Appendix B – UML and Data Flow Diagrams (DFD, Use Case, Activity, Sequence, Class)
+
+> The pre-implementation notation set that supports [Chapter 6 – System Design](Chapter6-System-Design.md). The class diagram (D9) has been updated to match the code as built; the others describe the intended design, with changes noted in Chapter 6.
 
 The formal design-notation set for the pre-implementation review: how data
 moves through the system, what a user/agent can actually do, how one
 simulation run unfolds step by step, how the modules talk to each other with
 a clock attached, and the static shape of the classes that will implement
-[CLAUDE.md](../../CLAUDE.md) §5–6. Where Chapter 3's D1–D4 were informal
+[CLAUDE.md](../../CLAUDE.md) §5–6. Where Appendix A's D1–D4 were informal
 architecture sketches, these five are the standard SE documentation set,
 drawn in **PlantUML**.
 
-PlantUML doesn't render inline on GitHub the way Chapter 3's Mermaid diagrams
+PlantUML doesn't render inline on GitHub the way Appendix A's Mermaid diagrams
 do — view these with the PlantUML VS Code/JetBrains extension, `plantuml.com`'s
 online server, or a local `plantuml.jar` + Graphviz install.
 
 Companion docs: [CLAUDE.md](../../CLAUDE.md) · [BUILD-PLAN.md](../BUILD-PLAN.md)
-· [DECISIONS.md](../DECISIONS.md) · [Chapter3-Design-Sheets.md](Chapter3-Design-Sheets.md)
+· [DECISIONS.md](../DECISIONS.md) · [Appendix-A-Design-Sheets.md](Appendix-A-Design-Sheets.md)
 
 Scope note: all five diagrams model the MVP as scoped in
 [CLAUDE.md](../../CLAUDE.md) §3 — synthetic grid network, single ambulance,
@@ -126,14 +128,14 @@ P8 --> OP : charts
 - **D5 (Signal Schedule) is written by two different processes** — 5.0
   (Coordinate Corridor) and 6.0 (Recover Signal) — and both write back into
   the same store that 2.0 (Simulate Traffic) reads from every tick. That
-  shared store is the mechanism behind Chapter 3's "two write paths into the
+  shared store is the mechanism behind Appendix A's "two write paths into the
   signal, not one."
 - **4.0 (Predict ETA) sits in a cycle with 2.0**, not a one-shot pipeline —
   it's fed the ambulance's position every tick and re-emits a sharper ETA
   each time, per [CLAUDE.md](../../CLAUDE.md) §6.2.
 - **7.0 only ever reads D2**, never writes to a live store the simulation
   consumes — same "metrics observe, never influence" guarantee as
-  Chapter 3's D1.
+  Appendix A's D1.
 
 ---
 
@@ -286,7 +288,7 @@ stop
 
 ## D8 — Sequence Diagram: Detailed Module Interaction
 
-A more complete version of Chapter 3's D2, showing route computation,
+A more complete version of Appendix A's D2, showing route computation,
 the repeating ETA/corridor loop, junction crossing, recovery, and the
 metrics handoff in one trace — this is the contract
 `core/*.py` and `simulation/*.py` need to satisfy.
@@ -356,161 +358,154 @@ class boundaries and relationships are the actual design commitment.
 @startuml D9-class
 skinparam classAttributeIconSize 0
 
-abstract class Vehicle {
+class Vehicle {
   +id: str
-  +position: Point
-  +speed: float
-  +route: Route
-  +move(dt: float)
+  +route: list[str]
+  +edge_index: int
+  +distance_into_edge_m: float
+  +speed_mps: float
+  +counts_toward_congestion: bool
+  +finished_tick: float
 }
-
 class Ambulance extends Vehicle {
-  +destination: Junction
-  +priority: bool = true
-  +notify_position(engine: SimulationEngine)
+  counts_toward_congestion = false
 }
-
-class BackgroundVehicle extends Vehicle {
-  +random_destination: Junction
-}
+class BackgroundVehicle extends Vehicle
 
 class RoadNetwork {
-  +junctions: List<Junction>
-  +edges: List<Edge>
-  +generate_grid(n: int): RoadNetwork
-  +get_travel_time(edge: Edge): float
+  +junctions: dict[str, Junction]
+  +edges: dict[(str,str), Edge]
+  +graph: DiGraph
+  +spacing_m: float
+  +discharge_headway_s: float
+  +xy(junction_id)
+  +position_xy(u, v, distance)
+  +edge(u, v)
 }
-
 class Junction {
   +id: str
-  +position: Point
+  +row: int
+  +col: int
   +signal: Signal
 }
-
 class Edge {
-  +from_junction: Junction
-  +to_junction: Junction
-  +length: float
-  +current_density: float
+  +axis: "NS" | "EW"
+  +length_m: float
+  +free_flow_speed_mps: float
+  +vehicle_count: int
+  +queue: list[str]
+  +next_release_t: float
+  +current_speed_mps()
 }
-
 class Signal {
-  +state: SignalState
   +cycle_plan: CyclePlan
-  +offset: float
-  +advance_tick(dt: float)
-  +apply_schedule(schedule: SignalSchedule)
-  +begin_recovery(offset: float, cycles: int)
+  +phase_offset_shift: float
+  +state_for_axis(axis, t)
+  +best_shift_for_green(axis, arrival_t, max_shift, lo, hi, anchor)
 }
-
-enum SignalState {
-  RED
-  GREEN
-  YELLOW
-}
-
 class CyclePlan {
-  +red_duration: float
   +green_duration: float
   +yellow_duration: float
-  +phase_at(t: float): SignalState
+  +phase_at(t)
+  +nongreen_remaining(axis, t)
 }
-
-class Router {
-  +compute_route(network: RoadNetwork, start: Junction, end: Junction): Route
+enum SignalState {
+  RED
+  YELLOW
+  GREEN
 }
 
 class Route {
-  +junctions: List<Junction>
-  +edges: List<Edge>
-  +total_distance: float
+  +junction_ids: list[str]
+  +edges: list[Edge]
+  +total_length_m()
 }
-
 class ETAPredictor {
-  +predict(route: Route, position: Point, speed: float): Map<Junction, float>
+  +predict(route, edge_index, distance_into_edge): dict[str, float]
 }
-
 class CorridorCoordinator {
-  +max_hold_seconds: float
-  +schedule(junction: Junction, eta: float): SignalSchedule
+  +horizon_s: float
+  +max_hold_s: float
+  +slew_rate: float?
+  +coordinate(t, etas, axes, dt)
 }
-
-class SignalSchedule {
-  +junction: Junction
-  +target_green_start: float
-  +target_green_end: float
-  +is_extension: bool
-}
-
 class RecoveryManager {
-  +recovery_cycles: int = 2
-  +begin_recovery(junction: Junction, offset: float)
-  +step(junction: Junction): float
+  +recovery_cycles: int
+  +begin_recovery(junction_id, signal)
+  +step(junction_id, signal, dt)
+  +is_recovering(junction_id)
+  +any_active()
 }
-
 enum RunMode {
   NO_PREEMPTION
   NAIVE_REACTIVE
+  CORRIDOR_NO_RECOVERY
   CORRIDOR_RECOVERY
 }
-
 class SimulationEngine {
   +mode: RunMode
-  +network: RoadNetwork
+  +route: Route
   +ambulance: Ambulance
-  +background_vehicles: List<BackgroundVehicle>
-  +tick()
+  +background_vehicles: list
   +run(): RunLog
+  -_set_shift(junction_id, target)
+  -_admissible(junction_id, old, candidate)
+  -_maybe_reroute()
 }
-
 class RunLog {
-  +ticks: List<TickRecord>
+  +ticks: list[TickRecord]
+  +frames: list[Frame]
+  +ambulance_transit_time_s
+  +background_delays_s
+  +eta_samples
+  +max_nongreen_s
+  +reroutes
 }
-
+class Scenario <<dataclass>> {
+  +grid_size, edge_length_m, background_vehicles
+  +seed, arterial_share, reroute
+  +corridor_horizon_s, corridor_max_hold_s
+  +recovery_cycles, slew_rate, reactive_trigger_m
+}
 class MetricsEvaluator {
-  +compute_transit_time(log: RunLog): float
-  +compute_avg_delay(log: RunLog): float
-  +compare(runs: Map<RunMode, RunLog>): ComparisonReport
+  +summarize(log): ModeMetrics
+  +compare(runs): ComparisonReport
 }
-
-class ComparisonReport {
-  +transit_times: Map<RunMode, float>
-  +avg_delays: Map<RunMode, float>
+class "metrics.sweep" as Sweep <<module>> {
+  compare_modes(scenario, seeds, modes)
+  sweep_parameter(base, name, values, seeds, modes)
+  run_standard_suite(seeds, base)
 }
-
-class Visualizer {
-  +plot_comparison(report: ComparisonReport)
-  +plot_signal_timeline(log: RunLog)
+class "api.server.Handler" as Handler {
+  GET /api/replay
+  GET /api/compare
+  GET /api/suite
+  GET static files
 }
 
 SimulationEngine "1" *-- "1" RoadNetwork
 SimulationEngine "1" *-- "1" Ambulance
 SimulationEngine "1" *-- "*" BackgroundVehicle
-SimulationEngine "1" -- "1" RunMode
 SimulationEngine "1" *-- "1" RunLog
-
+SimulationEngine "1" --> "1" RunMode
+SimulationEngine "1" *-- "1" CorridorCoordinator
+SimulationEngine "1" *-- "1" RecoveryManager
+SimulationEngine "1" *-- "1" ETAPredictor
+SimulationEngine ..> Route : recomputes
 RoadNetwork "1" *-- "*" Junction
 RoadNetwork "1" *-- "*" Edge
 Junction "1" *-- "1" Signal
 Signal "1" *-- "1" CyclePlan
-Signal -- SignalState
-
-SimulationEngine ..> Router : uses
-SimulationEngine ..> ETAPredictor : uses
-SimulationEngine ..> CorridorCoordinator : uses\n[mode=CORRIDOR_RECOVERY]
-SimulationEngine ..> RecoveryManager : uses\n[mode=CORRIDOR_RECOVERY]
-SimulationEngine ..> MetricsEvaluator : uses
-
-Router ..> Route : creates
-Vehicle "1" -- "1" Route
+Signal ..> SignalState
+CorridorCoordinator ..> Signal : writes shift\n(via engine guard)
+RecoveryManager ..> Signal : eases shift\n(via engine guard)
 ETAPredictor ..> Route : reads
-
-CorridorCoordinator ..> SignalSchedule : creates
-CorridorCoordinator ..> Signal : applies to
-RecoveryManager ..> Signal : applies to
-
-MetricsEvaluator ..> ComparisonReport : creates
-MetricsEvaluator ..> Visualizer : feeds
+Scenario ..> SimulationEngine : build_engine()
+MetricsEvaluator ..> RunLog : reads
+Sweep ..> Scenario
+Sweep ..> MetricsEvaluator
+Handler ..> Sweep
+Handler ..> Scenario
 @enduml
 ```
 
@@ -534,5 +529,5 @@ MetricsEvaluator ..> Visualizer : feeds
 ---
 
 **Next step:** [BUILD-PLAN.md](../BUILD-PLAN.md) Step 1 —
-`network/generate_grid.py`, now with both the informal (Chapter 3) and
-formal (Chapter 4) design set in place before implementation starts.
+`network/generate_grid.py`, now with both the informal (Appendix A) and
+formal (this appendix) design set in place before implementation starts.

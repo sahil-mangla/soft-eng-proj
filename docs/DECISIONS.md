@@ -4,7 +4,7 @@ Log of decisions that materially shape the codebase. Anything here was chosen by
 the project owner, not assumed by default — see [CLAUDE.md](../CLAUDE.md) §4 for
 the candidate options each decision was drawn from.
 
-Status: **D1–D3 decided** (2026-08-20). D4 deferred, non-blocking. **M1–M9** (modelling decisions) added with simulations v2 and v3.
+Status: **D1–D3 decided** (2026-08-20). D4 deferred, non-blocking. **M1–M10** (modelling decisions) added with simulations v2 to v4.
 
 ## D1 — Simulation engine
 
@@ -62,7 +62,7 @@ Status: **D1–D3 decided** (2026-08-20). D4 deferred, non-blocking. **M1–M9**
 ## Modelling decisions (simulation v2)
 
 Numbered M, not D, so they do not collide with the D5–D9 diagrams in
-[report/Chapter4-System-Design.md](report/Chapter4-System-Design.md).
+[report/Appendix-B-UML-and-DFD.md](report/Appendix-B-UML-and-DFD.md).
 
 - **M1 — The ambulance does not add to edge congestion.** It was slowing itself by
   ~15%, which also hid any difference between modes.
@@ -93,6 +93,14 @@ Numbered M, not D, so they do not collide with the D5–D9 diagrams in
   therefore differ by mode, so the replay carries one route per mode.
 - **M9 — Recovery only for junctions that were shifted,** and a run ends when signals are back on
   schedule, not after an idle recovery timer.
+
+- **M10 — Arterial demand as an experiment, not a default.** `arterial_share` puts a fraction of the
+  traffic on the ambulance's corridor; it uses its own random stream so a share of 0 reproduces the
+  earlier traffic exactly. The experiment runs with re-routing off, because otherwise the ambulance
+  simply leaves the congested road. Results in `docs/RESULTS.md`.
+- **T1 — Black-box cases are executable and generate their own result tables.** Expected results come
+  from the requirement; where the requirement gives only a rule, the case checks the rule
+  (`accept` predicate). `python -m scripts.blackbox_report` writes the table the report quotes.
 
 ## Frontend
 

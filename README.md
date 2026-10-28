@@ -18,7 +18,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 .venv/bin/python demo.py                     # four-mode comparison table + charts in outputs/
 .venv/bin/python -m metrics.sweep --seeds 24 # multi-seed means, 95% CIs, parameter sweeps
-.venv/bin/python -m pytest                   # 69 tests
+.venv/bin/python -m pytest                   # 121 tests (98% statement coverage)
 .venv/bin/python -m api.export               # writes frontend/data/sample.js (see below)
 .venv/bin/python -m api.server               # http://127.0.0.1:8000: the frontend + JSON API
 ```
@@ -59,5 +59,5 @@ bound. See [docs/RESULTS.md](docs/RESULTS.md) for the sweeps and why.
 
 - [CLAUDE.md](CLAUDE.md) — project brief. [docs/BUILD-PLAN.md](docs/BUILD-PLAN.md) — steps and status.
 - [docs/DECISIONS.md](docs/DECISIONS.md) — architecture and modelling decisions.
-- [docs/REPORT-STATUS.md](docs/REPORT-STATUS.md) — progress against the UCS503L report structure.
+- [docs/report/](docs/report/README.md) — the project report (Chapters 1 to 12), and [docs/REPORT-STATUS.md](docs/REPORT-STATUS.md) — what is left.
 - [docs/report/](docs/report/) — report chapters. [docs/MENTOR-PREP.md](docs/MENTOR-PREP.md) — mentor brief.

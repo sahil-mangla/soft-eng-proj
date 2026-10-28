@@ -111,7 +111,7 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 ## Step 9 — Hardening, evaluation, frontend (simulation v2)
 
 - [x] Model fixes M1–M5 ([DECISIONS.md](DECISIONS.md)); `Scenario` config shared by all entry points.
-- [x] Corridor-without-recovery mode (the recovery ablation); 69 pytest tests in `tests/`.
+- [x] Corridor-without-recovery mode (the recovery ablation); 121 pytest tests in `tests/`.
 - [x] `metrics/sweep.py`: multi-seed CIs, paired differences, sweeps over load, hold,
       horizon, recovery cycles, slew and reactive trigger.
 - [x] True red/green Gantt and ETA-accuracy chart in `viz/plots.py`.
@@ -119,8 +119,10 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - [x] Cobalt chosen and finalised: junction detail, per-seed bars, presets, CSV export, light/dark.
       Not done: frontend automated tests, `lock the system` design.md, SUMO-grade realism.
 - [x] Re-routing on changed conditions (CLAUDE.md §6.1), signal-safety and starvation bounds (M6–M8).
+- [x] Arterial-demand experiment, black-box cases, coverage, benchmark, browser smoke test (M10, T1).
+- [x] Report Chapters 3 to 12 written (`docs/report/`).
 - [ ] SUMO port (D1 phase 2).
-- [ ] Wrap the report against the UCS503L structure — see [REPORT-STATUS.md](REPORT-STATUS.md).
+- [x] Report structured against UCS503L — see [REPORT-STATUS.md](REPORT-STATUS.md) for what is left (task allocation).
 
 ## Explicitly deferred (do not build in this plan)
 

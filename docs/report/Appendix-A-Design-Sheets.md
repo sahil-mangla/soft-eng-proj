@@ -1,4 +1,6 @@
-# Chapter 3 – Design Sheets (Pre-Implementation)
+# Appendix A – Design Sheets (Pre-Implementation)
+
+> Written before implementation. It supports [Chapter 6 – System Design](Chapter6-System-Design.md); where it differs from the code, Chapter 6 and `docs/DECISIONS.md` are authoritative.
 
 Four working drawings for the pre-implementation review: how the modules
 connect, how a single preemption plays out over time, how the two novel
