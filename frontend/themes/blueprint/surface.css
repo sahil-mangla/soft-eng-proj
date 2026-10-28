@@ -1,0 +1,52 @@
+/* Blueprint surfaces for the sheet layout: lines instead of fills, square
+ * everything, and a signal language that survives without colour: solid
+ * white is go, a mid line is yellow, a dashed faint line is stop. */
+:root {
+  --panel-bg: transparent; --panel-line: var(--color-rule); --panel-radius: 0; --panel-shadow: none;
+  --control-radius: 0;
+  --btn-bg: transparent; --btn-ink: var(--color-ink); --btn-line: var(--color-rule); --btn-shadow: none;
+  --btn-primary-bg: var(--color-ink); --btn-primary-ink: var(--color-accent-ink); --btn-primary-line: var(--color-ink); --btn-primary-shadow: none;
+  --field-bg: var(--color-paper-2); --field-line: var(--color-rule);
+  --mode-line: var(--color-rule-2); --mode-on-bg: var(--color-ink); --mode-on-ink: var(--color-accent-ink);
+  --map-bg: var(--color-paper-2); --skeleton-line: var(--color-grid-2);
+  --road-color: var(--color-rule-2); --route-color: var(--color-grid-2);
+  --jn-fill: var(--color-paper-3); --jn-line: var(--color-rule);
+  --signal-go: var(--color-ink); --signal-amber: oklch(68% 0.07 246); --signal-stop: var(--color-rule-2);
+  --held-color: var(--color-ink);
+  --veh-color: var(--color-muted); --veh-stopped: var(--color-ink);
+  --amb-color: var(--color-ink); --amb-ink: var(--color-accent-ink);
+  --trace-color: var(--color-ink); --head-color: var(--color-ink);
+  --bar-fill: var(--color-ink); --row-current: var(--color-paper-3);
+  --run-hatch: oklch(97% 0.01 240 / 0.32);
+}
+h1, h2 { text-transform: uppercase; }
+.brand { font-size: var(--text-xl); }
+.panel__title { font-size: var(--text-md); }
+.topbar { border-bottom: var(--rule-heavy) solid var(--color-rule); max-width: none; padding-inline: max(var(--gutter), calc((100% - var(--container)) / 2 + var(--gutter))); margin-bottom: var(--space-md); }
+/* figures get the second keyline inside the first */
+.stage, .timeline { position: relative; }
+.stage::after, .timeline::after { content: ""; position: absolute; inset: 5px; border: var(--rule-hair) solid var(--color-rule-2); pointer-events: none; }
+.stage, .timeline, .params, .ledger, .eta { padding: var(--space-lg); }
+.map { background-image: linear-gradient(var(--color-grid) 1px, transparent 1px), linear-gradient(90deg, var(--color-grid) 1px, transparent 1px); background-size: 24px 24px; background-position: var(--sheet-inset) var(--sheet-inset); }
+.btn:hover:not(:disabled) { background: var(--color-paper-3); transform: none; }
+.btn--primary:hover:not(:disabled) { background: var(--color-ink-2); }
+.btn:active:not(:disabled) { transform: none; }
+.mode:hover { background: var(--color-paper-3); }
+.mode[aria-checked="true"]:hover { background: var(--color-ink-2); }
+/* title block: scenario fields as keylined cells */
+.params .fields { gap: 0; border: var(--rule-hair) solid var(--color-rule); }
+.params .field { padding: var(--space-xs) var(--space-sm); border: 0 solid var(--color-rule); border-right-width: var(--rule-hair); border-bottom-width: var(--rule-hair); gap: 0; }
+.params .input { min-height: 32px; padding: 0; background: transparent; border-color: transparent; font-family: var(--font-outlier); }
+.params .input:hover { border-color: transparent; }
+.params .field:focus-within { background: var(--color-paper-3); }
+.params .field--wide { grid-column: span 2; }
+.params .field--wide:last-child { grid-column: 1 / -1; border-right-width: 0; border-bottom-width: 0; }
+.table thead th { border-bottom: var(--rule-heavy) solid var(--color-rule); color: var(--color-ink); }
+.gantt__axis::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: var(--rule-hair); background: var(--color-rule); }
+.gantt__axis span { border-left-width: 0; }
+.gantt__axis span::before { content: ""; position: absolute; left: -1px; top: calc(-1 * var(--space-2xs)); width: var(--rule-hair); height: var(--tick); background: var(--color-rule); transform: rotate(45deg); }
+.gantt__track { background: var(--color-paper-3); outline: var(--rule-hair) solid var(--color-rule-2); outline-offset: -1px; }
+.modes { gap: 0; }
+.mode + .mode { margin-left: -1px; }
+.fig, .clock, .gantt__label, .gantt__axis { font-weight: 500; }
+@media (max-width: 40rem) { .params .field--wide { grid-column: 1 / -1; } }
