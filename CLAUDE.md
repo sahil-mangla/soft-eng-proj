@@ -103,6 +103,7 @@ soft-eng-proj/
 │   ├── generate_grid.py      # builds synthetic grid network (or SUMO .net.xml)
 │   └── osm_import.py         # optional: real road network import
 ├── simulation/
+│   ├── engine.py             # shared tick-loop SimulationEngine, driven by a RunMode field
 │   ├── run_baseline.py       # simulation with no preemption / naive reactive preemption
 │   ├── run_corridor.py       # simulation with predictive corridor + recovery
 │   └── traffic_agents.py     # background traffic generation

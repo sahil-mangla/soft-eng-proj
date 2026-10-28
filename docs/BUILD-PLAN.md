@@ -22,88 +22,101 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ## Step 1 — Network foundation
 
-- [ ] `network/generate_grid.py`: generate a synthetic N×N grid network (default
+- [x] `network/generate_grid.py`: generate a synthetic N×N grid network (default
       5×5) of junctions and edges, each junction with a fixed-cycle signal plan
       (red/green/yellow durations configurable).
 - [ ] (Optional, later) `network/osm_import.py`: import a small real road-network
       extract for a "real city" demo, once the algorithm is validated on
       synthetic data.
-- [ ] Sanity check: print/plot the generated network and confirm junction/edge
-      counts match expectations.
+- [x] Sanity check: `demo.py` / `simulation/run_baseline.py` confirm junction/edge
+      counts and routing behave as expected on the default 5×5 grid.
 
 ## Step 2 — Background traffic + baseline simulation
 
-- [ ] `simulation/traffic_agents.py`: generate simple background vehicle agents
+- [x] `simulation/traffic_agents.py`: generate simple background vehicle agents
       that move across the network according to the fixed-cycle signals (no
       preemption logic yet), producing "normal" congestion.
-- [ ] `core/router.py`: shortest-*time* path computation (not shortest-distance)
+- [x] `core/router.py`: shortest-*time* path computation (not shortest-distance)
       for the ambulance, weighted by current travel time/congestion.
-- [ ] `simulation/run_baseline.py`: run one ambulance agent from A to B through
+- [x] `simulation/run_baseline.py`: run one ambulance agent from A to B through
       the network with **no preemption at all**, alongside background traffic.
       This is the working scaffold / control condition.
-- [ ] **Milestone check**: baseline simulation runs end-to-end and reports
-      ambulance transit time. This is the "definition of done" floor for the
-      whole project — everything after this step is additive.
+- [x] **Milestone check**: baseline simulation runs end-to-end and reports
+      ambulance transit time (v1 sample scenario: 171.0s). This is the
+      "definition of done" floor for the whole project — everything after this
+      step is additive.
 
 ## Step 3 — ETA prediction
 
-- [ ] `core/eta_predictor.py`: given the ambulance's current position/speed and
+- [x] `core/eta_predictor.py`: given the ambulance's current position/speed and
       route, estimate seconds-to-arrival at each upcoming junction.
-- [ ] Prediction updates on a rolling basis (every simulation tick or every N
+- [x] Prediction updates on a rolling basis (every simulation tick or every N
       metres traveled) as the ambulance moves — not computed once at t=0.
 - [ ] Validation: log predicted vs. actual arrival time per junction per run;
-      confirm error shrinks as the ambulance gets closer.
+      confirm error shrinks as the ambulance gets closer. (Not yet instrumented
+      in v1 — predictions are consumed live by the coordinator but not logged
+      for accuracy analysis.)
 
 ## Step 4 — Green corridor coordination (the core novel logic)
 
-- [ ] `core/corridor_coordinator.py`: for each junction ahead of the ambulance on
+- [x] `core/corridor_coordinator.py`: for each junction ahead of the ambulance on
       its route, schedule a green phase timed to the ETA prediction from Step 3.
-- [ ] Enforce a bound on how long perpendicular/cross traffic can be held (start
-      with a simple threshold rule: extend the current phase or truncate the
-      opposing phase by at most X seconds — no more sophisticated optimization
-      yet).
-- [ ] `simulation/run_corridor.py`: run the same scenario as Step 2's baseline,
+- [x] Enforce a bound on how long perpendicular/cross traffic can be held (v1:
+      bounded shift search over `±max_hold_s`, default 15s — extends the
+      current phase or truncates the opposing one, whichever scores higher,
+      without exceeding the bound).
+- [x] `simulation/run_corridor.py`: run the same scenario as Step 2's baseline,
       but with corridor coordination active.
 
 ## Step 5 — Graceful recovery
 
-- [ ] `core/recovery.py`: once the ambulance clears a junction, interpolate that
+- [x] `core/recovery.py`: once the ambulance clears a junction, interpolate that
       junction back to its normal fixed-cycle position over the next 1–2 cycles
       (rather than resetting instantly), so queued traffic clears before normal
       timing resumes.
-- [ ] Wire recovery into `simulation/run_corridor.py` so corridor mode always
+- [x] Wire recovery into `simulation/run_corridor.py` so corridor mode always
       includes recovery.
 
 ## Step 6 — Naive reactive baseline (for a fair three-way comparison)
 
-- [ ] Implement a naive reactive-preemption mode: signal only reacts once the
+- [x] Implement a naive reactive-preemption mode: signal only reacts once the
       ambulance is within ~200m, and resets instantly (no gradual recovery) once
       it clears. This is the "existing systems" comparison point, distinct from
-      the no-preemption baseline in Step 2.
+      the no-preemption baseline in Step 2. (v1: `--mode naive` on
+      `simulation/run_baseline.py`, or `RunMode.NAIVE_REACTIVE` on the shared
+      `simulation/engine.py`.)
 
 ## Step 7 — Metrics & visualization
 
-- [ ] `metrics/evaluate.py`: compute, for each run —
+- [x] `metrics/evaluate.py`: compute, for each run —
       - Ambulance total transit time.
       - Average delay imposed on background traffic.
   - Compare across all three modes: no-preemption baseline, naive-reactive,
     predictive corridor + recovery.
-- [ ] `viz/plots.py`: before/after comparison charts, plus a Gantt-style
-      red/green signal-state timeline per junction with the ambulance's position
-      overlaid.
+- [x] `viz/plots.py`: before/after comparison charts, plus a Gantt-style
+      hold timeline per junction with the ambulance's position overlaid (v1
+      shows shift-active intervals rather than full red/green state; a true
+      red/green Gantt is a follow-up refinement).
 
 ## Step 8 — Final demo & report
 
-- [ ] A single script/notebook that runs all three modes on the same scenario
+- [x] A single script/notebook that runs all three modes on the same scenario
       (same network, same background traffic, same ambulance A→B) and prints the
-      comparison table + renders the charts from Step 7.
-- [ ] Confirm the MVP "definition of done" from [CLAUDE.md](../CLAUDE.md) §3:
-      corridor mode has meaningfully lower ambulance transit time, and
-      corridor+recovery mode does not dramatically worsen background-traffic
-      delay relative to no-preemption (and ideally beats naive-reactive).
-- [ ] Wrap the report: Chapters 1–2 already drafted in
-      [docs/report/](report/); add subsequent chapters (design, implementation,
-      testing, results) as the corresponding build steps complete.
+      comparison table + renders the charts from Step 7. (`demo.py` at repo
+      root.)
+- [x] Confirm the MVP "definition of done" from [CLAUDE.md](../CLAUDE.md) §3:
+      v1 sample run — no-preemption 171.0s / naive-reactive 136.0s /
+      corridor+recovery 136.0s transit time; avg background delay 32.9s /
+      26.8s / 26.4s respectively. Corridor mode matches naive-reactive's
+      ambulance benefit while imposing the least background delay of the
+      three, using a *bounded* preemption instead of naive-reactive's
+      unbounded one — directionally correct, though the corridor-vs-naive gap
+      is small on this scenario and worth widening with tuned parameters
+      (`corridor_horizon_s`, `corridor_max_hold_s`, `recovery_cycles`) or a
+      denser/larger grid before treating these as final numbers.
+- [ ] Wrap the report: Chapters 1–3 (and now 4, system design) are drafted in
+      [docs/report/](report/); add implementation, testing, and results
+      chapters now that v1 is running.
 
 ## Explicitly deferred (do not build in this plan)
 
