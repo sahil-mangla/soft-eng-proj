@@ -1,17 +1,31 @@
 # Frontend
 
-`app.js` replays a four-mode run on the signal grid (map, red/green signal timeline,
-mode ledger, ETA error). It reads `/api/replay` from `python -m api.server`, or
-`data/sample.js` (`python -m api.export`) when opened from disk.
+`index.html` + `app.js`: replays a four-mode run on the signal grid and compares the
+modes. Vanilla JS and SVG, no build step. Theme: Cobalt (Hallmark), light and dark.
 
-Three Hallmark design mocks share that code and differ only in theme CSS and layout:
+- Served by `python -m api.server` at `http://127.0.0.1:8000/` (live scenarios), or open
+  `index.html` from disk for the fixed sample run (`python -m api.export` writes
+  `data/sample.js`; it is generated, not committed).
+- State lives in the URL: `?seed=7&vehicles=200&mode=naive_reactive&t=150&speed=16`.
 
-| Mock | Theme | Layout | Signal language |
-| --- | --- | --- | --- |
-| `mocks/cobalt.html` | Cobalt: cool paper, keycaps, cut corners | console (rail, map, ledger) | green, yellow, red |
-| `mocks/blueprint.html` | Blueprint: cyanotype sheet, keylines, square | sheet (map, schedule, title block) | line weight and dash, no hue |
-| `mocks/coral.html` | Coral: cotton stock on felt, letterpress | desk (cards and a groove switch) | green, yellow, red |
+## What is on the screen
 
-Open them via the server (`http://127.0.0.1:8000/mocks/cobalt.html`) to change the
-scenario, or directly from disk for the fixed sample run. `?t=150` starts at a given second.
-After a mock is chosen, the others and `frontend/mocks/` are removed.
+| Element | Purpose |
+| --- | --- |
+| Mode buttons with transit time | Switch control mode at the same moment in the replay |
+| Graphite readout | The finding in one sentence; adds the multi-seed verdict once compared |
+| Signal grid | Red/green/yellow per direction, shifted junctions ringed, stopped vehicles, live seconds-to-arrival tags on the route |
+| Junction detail | Click or Enter on a junction: signal state, phase shift, predicted vs actual arrival, how long green led the ambulance. Esc closes and returns focus |
+| Signal timeline | Approach-axis state per route junction over time; click to seek |
+| Ledger | Four modes with deltas coloured by whether they helped; Export CSV for the report |
+| Across seeds | 12-seed means with CIs, and one bar per seed for transit and background delay |
+| Presets | Light (40), Typical (80), Rush hour (200) vehicles |
+| Appearance | Light, Dark, System (remembered in the browser) |
+
+Design references reviewed (ObsidianUI analytics dashboard and components, RewampUI): adopted
+the delta semantics, rolling figures, range-style presets, details panel behaviour, status-bar
+strips, export and appearance setting; skipped sparkline KPI cards, sidebar pages, assistant
+composer and decorative effects (see docs/DECISIONS.md F2).
+
+The Coral and Blueprint design mocks were removed after review; they live in git history at
+commit `13fcc6b`.

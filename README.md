@@ -18,9 +18,9 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 .venv/bin/python demo.py                     # four-mode comparison table + charts in outputs/
 .venv/bin/python -m metrics.sweep --seeds 24 # multi-seed means, 95% CIs, parameter sweeps
-.venv/bin/python -m pytest                   # 48 tests
+.venv/bin/python -m pytest                   # 49 tests
 .venv/bin/python -m api.export               # writes frontend/data/sample.js (see below)
-.venv/bin/python -m api.server               # http://127.0.0.1:8000, serves the frontend + JSON API
+.venv/bin/python -m api.server               # http://127.0.0.1:8000: the frontend + JSON API
 ```
 
 Individual runs: `python -m simulation.run_baseline [--mode naive]`,
@@ -51,7 +51,7 @@ naive). See [docs/RESULTS.md](docs/RESULTS.md) for the sweeps and why.
 ├── metrics/      # per-run metrics, CIs, multi-seed sweeps, ETA accuracy
 ├── viz/          # matplotlib charts (comparison, red/green Gantt, ETA, sweeps)
 ├── api/          # replay exporter + stdlib JSON/static server
-├── frontend/     # replay UI (design mocks in frontend/mocks/, see its README)
+├── frontend/     # replay UI: index.html + app.js, Cobalt theme, light/dark (see its README)
 ├── tests/        # pytest suite
 └── docs/         # build plan, decisions, results, report chapters, report status
 ```

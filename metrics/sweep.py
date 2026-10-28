@@ -45,6 +45,10 @@ class ModeSummary:
     # Paired differences against the reference mode (None for the reference itself).
     transit_vs_ref: Estimate | None = None
     delay_vs_ref: Estimate | None = None
+    # Per-seed values in seed order, so the frontend can show the spread.
+    transit_samples: list[float] | None = None
+    delay_samples: list[float] | None = None
+    max_nongreen_samples: list[float] | None = None
 
 
 def compare_modes(
@@ -68,6 +72,9 @@ def compare_modes(
             avg_delay=estimate([r.avg_delay_s for r in rows]),
             p95_delay=estimate([r.p95_delay_s for r in rows]),
             max_nongreen=estimate([r.max_nongreen_s for r in rows]),
+            transit_samples=[r.transit_s for r in rows],
+            delay_samples=[r.avg_delay_s for r in rows],
+            max_nongreen_samples=[r.max_nongreen_s for r in rows],
         )
         if ref is not None and mode != reference:
             summary.transit_vs_ref = paired_difference([r.transit_s for r in rows], [r.transit_s for r in ref])

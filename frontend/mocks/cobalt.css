@@ -1,8 +1,0 @@
-/* Hallmark · shape: app screen · genre: modern-minimal · theme: Cobalt (deal 2/3, seed interactive-dashboard-predictive-green-corridor-c3af·19169970·2026-10-28·r0)
- * nav: top bar, no sidebar · signature: the signal-grid replay with the green corridor forming ahead of the ambulance · states: loading, error, sample data, ready
- * axes: light/grotesk-sans/cool · posture: restrained · contrast: pass · v2.0.0 */
-/* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V3 · weakest: V, a console shell is the category default; the grid replay is the only non-default object so it takes the centre column */
-@import url("../themes/cobalt/tokens.css");
-@import url("../themes/cobalt/base.css");
-@import url("../structure.css");
-@import url("../themes/cobalt/surface.css");

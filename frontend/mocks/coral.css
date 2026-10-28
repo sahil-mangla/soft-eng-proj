@@ -1,8 +1,0 @@
-/* Hallmark · shape: app screen · genre: modern-minimal · theme: Coral (deal 1/3, seed interactive-dashboard-predictive-green-corridor-c3af·19169970·2026-10-28·r0)
- * nav: top bar, no sidebar · signature: the signal-grid replay with the green corridor forming ahead of the ambulance · states: loading, error, sample data, ready
- * axes: light/grotesk-sans/warm · posture: restrained · contrast: pass · v2.0.0 */
-/* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V4 · weakest: S, stationery is a metaphor borrowed from invoicing so it was kept to surfaces and one pressed Arrived state, no paper props */
-@import url("../themes/coral/tokens.css");
-@import url("../themes/coral/base.css");
-@import url("../structure.css");
-@import url("../themes/coral/surface.css");

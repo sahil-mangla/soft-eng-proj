@@ -1,8 +1,0 @@
-/* Hallmark · shape: app screen · genre: modern-minimal · theme: Blueprint (deal 2/3, seed interactive-dashboard-predictive-green-corridor-c3af·19169970·2026-10-28·r0)
- * nav: top bar, no sidebar · signature: the signal-grid replay with the green corridor forming ahead of the ambulance · states: loading, error, sample data, ready · blueprint: cyanotype
- * axes: mid/geometric-sans/neutral · posture: drenched · contrast: pass · v2.0.0 */
-/* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V4 · weakest: E, signal state is carried by line weight and dash not hue so the grid needed a legend; added one and a dashed-red cue on the map */
-@import url("../themes/blueprint/tokens.css");
-@import url("../themes/blueprint/base.css");
-@import url("../structure.css");
-@import url("../themes/blueprint/surface.css");

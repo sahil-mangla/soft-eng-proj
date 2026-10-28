@@ -18,6 +18,8 @@
   --bar-fill: var(--color-accent); --row-current: var(--color-accent-wash);
   --readout-bg: var(--color-graphite); --readout-ink: var(--color-graphite-ink); --readout-muted: var(--color-graphite-muted); --readout-accent: var(--color-accent-2);
   --run-hatch: oklch(100% 0 0 / 0.14);
+  --delta-good: oklch(42% 0.13 152); --delta-bad: oklch(47% 0.17 27); --delta-flat: var(--color-muted);
+  --bar-good: var(--color-accent); --bar-bad: var(--signal-stop);
 }
 .panel { border-radius: var(--radius-card); }
 @supports (corner-shape: bevel) {
@@ -33,3 +35,26 @@
 .mode[aria-checked="true"] { box-shadow: var(--shadow-key-accent); }
 .group__title { color: var(--color-ink-2); }
 .panel__title { margin-bottom: var(--space-xs); }
+
+/* dark appearance: the same hue family, graphite lifted into the ground */
+:root[data-mode="dark"] {
+  color-scheme: dark;
+  --color-paper: oklch(17.5% 0.022 262); --color-paper-2: oklch(21% 0.024 262); --color-paper-3: oklch(25.5% 0.026 262);
+  --color-ink: oklch(94.5% 0.01 250); --color-ink-2: oklch(82% 0.015 252); --color-muted: oklch(68% 0.02 256);
+  --color-rule: oklch(29% 0.022 262); --color-rule-2: oklch(38% 0.026 262);
+  --color-graphite: oklch(12.5% 0.02 262); --color-graphite-2: oklch(19% 0.024 262);
+  --color-accent: oklch(66% 0.17 258); --color-accent-2: oklch(78% 0.12 254); --color-accent-wash: oklch(27% 0.06 258);
+  --color-accent-ink: oklch(14% 0.02 262); --color-focus: oklch(74% 0.14 256); --color-accent-edge: oklch(40% 0.15 260);
+  --color-glyph-1: oklch(28% 0.03 258); --color-glyph-2: oklch(36% 0.045 258); --color-glyph-4: oklch(64% 0.13 257);
+  --color-key-face: oklch(25% 0.024 262); --color-key-edge: oklch(12% 0.02 262);
+  --color-error: oklch(70% 0.16 27);
+  --shadow-card: 0 1px 2px oklch(0% 0 0 / 0.35);
+  --shadow-key: 0 3px 0 0 var(--color-key-edge), inset 0 1px 0 oklch(100% 0 0 / 0.08);
+  --shadow-key-accent: 0 3px 0 0 var(--color-accent-edge), inset 0 1px 0 oklch(100% 0 0 / 0.22);
+  --shadow-key-press: inset 0 1px 2px oklch(0% 0 0 / 0.4);
+  --signal-go: oklch(68% 0.13 152); --signal-amber: oklch(82% 0.13 88); --signal-stop: oklch(64% 0.16 26);
+  --route-color: color-mix(in oklab, var(--color-accent) 28%, transparent);
+  --run-hatch: oklch(0% 0 0 / 0.28);
+  --delta-good: oklch(78% 0.14 152); --delta-bad: oklch(76% 0.13 27);
+  --readout-bg: var(--color-graphite); --readout-ink: var(--color-graphite-ink); --readout-muted: var(--color-graphite-muted);
+}

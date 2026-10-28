@@ -82,8 +82,12 @@ Numbered M, not D, so they do not collide with the D5–D9 diagrams in
 
 - **F1 — stdlib `http.server` + vanilla JS/SVG, no build step.** Keeps D3 (pip + venv only);
   `python -m api.export` makes a static sample so the UI also opens from disk.
-- **F2 — Theme chosen by mock review.** Three Hallmark themes (Cobalt, Blueprint, Coral)
-  are built as live mocks in `frontend/mocks/`; one is kept after review.
+- **F2 — Cobalt chosen by mock review** (Cobalt, Blueprint and Coral were built as live mocks;
+  the other two are in git at `13fcc6b`). Elements taken from the ObsidianUI analytics dashboard:
+  good/bad-coloured deltas, rolling figures, presets, a details panel with Esc and focus return,
+  status-bar strips (as per-seed bars), CSV export, light/dark. Not taken: sparkline KPI cards
+  (they add nothing the readout does not already say), sidebar pages (one screen), the assistant
+  composer (needs an LLM backend), and decorative motion (RewampUI cursor gradients, marquees).
 
 ---
 

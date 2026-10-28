@@ -32,6 +32,9 @@
     ['0.25', 'Eased, 0.25 s per s'],
     ['0.15', 'Eased, 0.15 s per s'],
   ];
+  const PRESETS = [['Light', 40], ['Typical', 80], ['Rush hour', 200]];
+  const STATE_WORD = { G: 'Green', Y: 'Yellow', R: 'Red' };
+  const APPEARANCE_KEY = 'green-corridor-appearance';
   const NS = 'http://www.w3.org/2000/svg';
 
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -61,6 +64,10 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     error: '',
     map: null,
     last: 0,
+    sel: null,
+    opener: null,
+    shownTransit: null,
+    maxShift: {},
   };
 
   /* ---- URL state ---------------------------------------------------- */
@@ -104,11 +111,21 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
           <h1 class="brand">Green corridor</h1>
           <p class="topbar__sub">Predictive signal coordination for emergency vehicles, simulated on a 5 by 5 grid</p>
         </div>
-        <p class="topbar__status" id="status" role="status"></p>
+        <div class="topbar__right">
+          <p class="topbar__status" id="status" role="status"></p>
+          <div class="seg" role="radiogroup" aria-label="Appearance" id="appearance">
+            <button type="button" class="seg__btn" role="radio" data-pref="light">Light</button>
+            <button type="button" class="seg__btn" role="radio" data-pref="dark">Dark</button>
+            <button type="button" class="seg__btn" role="radio" data-pref="system">System</button>
+          </div>
+        </div>
       </header>
       <main class="shell" id="shell">
         <section class="panel params" aria-labelledby="h-params">
           <h2 id="h-params" class="panel__title">Scenario</h2>
+          <div class="presets" role="radiogroup" aria-label="Traffic preset" id="presets">
+            ${PRESETS.map(([name, n]) => `<button type="button" class="mode" role="radio" aria-checked="false" data-vehicles="${n}"><span class="mode__name">${name}</span><span class="mode__fig num">${n}</span></button>`).join('')}
+          </div>
           <form id="params" class="fields" autocomplete="off">
             ${group('Traffic', ['seed', 'vehicles'])}
             ${group('Corridor controller', ['hold', 'horizon', 'recovery'],
@@ -160,8 +177,15 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
         </div>
 
         <div class="side">
+          <section class="panel detail" id="detail" aria-labelledby="h-detail" hidden>
+            <div class="panel__head"><h2 id="h-detail" class="panel__title">Junction</h2>
+              <button class="btn" type="button" id="detail-close">Close</button></div>
+            <dl class="facts" id="facts"></dl>
+          </section>
+
           <section class="panel ledger" aria-labelledby="h-ledger">
-            <h2 id="h-ledger" class="panel__title">Four modes, one scenario</h2>
+            <div class="panel__head"><h2 id="h-ledger" class="panel__title">Four modes, one scenario</h2>
+              <button class="btn" type="button" id="export">Export CSV</button></div>
             <div id="ledger"></div>
             <div id="seeds" class="seeds"></div>
           </section>
@@ -216,6 +240,9 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
       }
     }
     state.status = 'ready';
+    state.sel = null;
+    state.maxShift = {};
+    $('#detail').hidden = true;
     state.pos = state.startAt || 0;
     state.startAt = 0;
     state.map = null;
@@ -244,12 +271,12 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
 
     const jg = svgEl('g', { class: 'junctions' }, svg);
     const junctionNodes = network.junctions.map((j) => {
-      const g = svgEl('g', { class: 'jn', transform: `translate(${j.x} ${j.y})` }, jg);
+      const g = svgEl('g', { class: 'jn', 'data-id': j.id, tabindex: 0, role: 'button', 'aria-label': `Junction ${j.id}, show details`, transform: `translate(${j.x} ${j.y})` }, jg);
       svgEl('circle', { class: 'jn__held', r: 78 }, g);
       svgEl('rect', { class: 'jn__box', x: -44, y: -44, width: 88, height: 88 }, g);
       const ns = svgEl('line', { class: 'sig sig--ns s-R', x1: 0, y1: -32, x2: 0, y2: 32 }, g);
       const ew = svgEl('line', { class: 'sig sig--ew s-R', x1: -32, y1: 0, x2: 32, y2: 0 }, g);
-      return { ns, ew, held: $('.jn__held', g) };
+      return { id: j.id, g, ns, ew, held: $('.jn__held', g) };
     });
     for (const [idx, label] of [[0, 'A'], [route.length - 1, 'B']]) {
       const j = byId[route[idx]];
@@ -305,6 +332,7 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
       c.setAttribute('class', bg[k * 3 + 2] ? 'veh' : 'veh veh--stopped');
     });
     paintClock(fr, i);
+    if (state.sel) paintDetail();
   }
 
   /* ---- timeline ----------------------------------------------------- */
@@ -391,26 +419,33 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
   }
 
   /* ---- ledger, seeds, eta ------------------------------------------ */
+  function delta(value, { tol = 0, digits = 0, lowerIsBetter = true, unit = ' s' } = {}) {
+    // A signed difference whose colour says whether it helped, not just which way it went.
+    const kind = Math.abs(value) <= tol ? 'flat' : (value < 0) === lowerIsBetter ? 'good' : 'bad';
+    const text = Math.abs(value) <= tol && digits === 0 ? `0${unit}` : `${signed(value, digits)}${unit}`;
+    return `<span class="delta delta--${kind}">${text}</span>`;
+  }
+
   function paintLedger() {
     const ms = state.replay.modes;
     const base = ms.no_preemption.metrics;
     const maxT = Math.max(...MODES.map((k) => ms[k].metrics.transit_s));
     const rows = MODES.map((k) => {
       const m = ms[k].metrics;
-      const d = m.transit_s - base.transit_s;
+      const ref = k === 'no_preemption';
       return `<tr data-mode="${k}" ${k === state.mode ? 'aria-current="true"' : ''}>
         <th scope="row"><button type="button" class="rowbtn" data-mode="${k}" aria-pressed="${k === state.mode}">${MODE_LABEL[k]}</button></th>
-        <td class="num"><span class="fig">${f0(m.transit_s)} s</span><span class="meter" aria-hidden="true"><i style="width:${(m.transit_s / maxT) * 100}%"></i></span></td>
-        <td class="num">${k === 'no_preemption' ? 'Reference' : signed(d, 0) + ' s'}</td>
-        <td class="num">${f1(m.avg_delay_s)} s</td>
-        <td class="num">${f0(m.max_nongreen_s)} s</td>
+        <td class="num"><span class="fig">${sec(m.transit_s)}</span><span class="meter" aria-hidden="true"><i style="width:${(m.transit_s / maxT) * 100}%"></i></span></td>
+        <td class="num">${ref ? 'Reference' : delta(m.transit_s - base.transit_s, { tol: 1 })}</td>
+        <td class="num"><span class="fig">${sec1(m.avg_delay_s)}</span>${ref ? '' : `<span class="sub">${delta(m.avg_delay_s - base.avg_delay_s, { tol: 0.5, digits: 1 })}</span>`}</td>
+        <td class="num"><span class="fig">${sec(m.max_nongreen_s)}</span>${ref ? '' : `<span class="sub">${delta(m.max_nongreen_s - base.max_nongreen_s, { tol: 0 })}</span>`}</td>
       </tr>`;
     }).join('');
     $('#ledger').innerHTML = `<table class="table">
       <caption class="visually-hidden">Seed ${state.replay.scenario.seed}, one traffic draw per mode</caption>
       <thead><tr><th scope="col">Mode</th><th scope="col">Transit</th><th scope="col">Against none</th><th scope="col">Bg delay</th><th scope="col">Longest wait</th></tr></thead>
       <tbody>${rows}</tbody></table>
-      <p class="note">One seed is one traffic draw. Longest wait is the longest stretch any signal showed red or yellow to one direction; a fixed cycle gives ${f0(base.max_nongreen_s)} s.</p>`;
+      <p class="note">One seed is one traffic draw. Longest wait is the longest stretch any signal showed red or yellow to one direction; a fixed cycle gives ${f0(base.max_nongreen_s)} s. Differences are against no preemption, and green means better. A difference of half a second or less on delay counts as none.</p>`;
     $$('#ledger .rowbtn').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
   }
 
@@ -436,7 +471,28 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     }).join('');
     box.innerHTML = `<h3 class="seeds__title">Across ${c.seeds} seeds</h3>
       <table class="table table--compact"><thead><tr><th scope="col">Mode</th><th scope="col">Transit</th><th scope="col">Transit vs none</th><th scope="col">Delay vs none</th></tr></thead><tbody>${rows}</tbody></table>
-      <p class="note">Paired by seed. Where the delay interval spans zero, the modes are not distinguishable on background delay.</p>`;
+      <p class="note">Paired by seed. Where the delay interval spans zero, the modes are not distinguishable on background delay.</p>${strips(c)}`;
+  }
+
+  function strips(c) {
+    const mode = c.modes[state.mode], ref = c.modes.no_preemption;
+    if (state.mode === 'no_preemption' || !mode.transit_samples || !ref.transit_samples) return '';
+    const one = (label, a, b, unit, digits) => {
+      const diffs = a.map((v, i) => v - b[i]);
+      const max = Math.max(...diffs.map(Math.abs), 1e-9);
+      const better = diffs.filter((d) => d < 0).length;
+      const bars = diffs.map((d, i) => {
+        const h = Math.max(2, (Math.abs(d) / max) * 50);
+        const up = d > 0, kind = d < 0 ? 'good' : 'bad';
+        return `<span class="sbar" title="Seed ${i}: ${signed(d, digits)} ${unit}"><i class="sbar__fill sbar__fill--${kind} ${up ? 'sbar__fill--up' : 'sbar__fill--down'}" style="height:${h}%"></i></span>`;
+      }).join('');
+      return `<div class="strip"><p class="strip__head"><span>${label}</span><span class="num">lower in ${better} of ${diffs.length} seeds</span></p>
+        <div class="strip__bars" role="img" aria-label="${label} against no preemption for each seed: lower in ${better} of ${diffs.length}">${bars}</div>
+        <p class="strip__scale num"><span>−${f1(max)} ${unit}</span><span>+${f1(max)} ${unit}</span></p></div>`;
+    };
+    return `<div class="strips"><h3 class="seeds__title">${MODE_LABEL[state.mode]} against no preemption, seed by seed</h3>
+      ${one('Ambulance transit', mode.transit_samples, ref.transit_samples, 's', 0)}
+      ${one('Background delay', mode.delay_samples, ref.delay_samples, 's', 1)}</div>`;
   }
 
   async function runCompare() {
@@ -491,6 +547,9 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     }
     $('#readout-head').innerHTML = head;
     $('#readout-body').innerHTML = body;
+    const fig = $('#readout-head .num');
+    if (fig && state.shownTransit != null && state.shownTransit !== m.transit_s) tween(fig, state.shownTransit, m.transit_s);
+    state.shownTransit = m.transit_s;
   }
 
   function paintStatus() {
@@ -505,6 +564,7 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     else s.textContent = `Live run, seed ${state.replay.scenario.seed}`;
     const live = state.source === 'api' || state.status !== 'ready';
     run.disabled = state.status === 'loading' || (state.status === 'ready' && !live);
+    $$('#presets .mode').forEach((b) => { b.disabled = state.status === 'loading' || (state.status === 'ready' && state.source === 'sample'); });
     $('#run-hint').textContent = state.status === 'ready' && state.source === 'sample' ? 'Opened from disk, so scenarios are fixed. Run python -m api.server to change them.' : '';
     $('#shell').setAttribute('aria-busy', state.status === 'loading');
   }
@@ -558,6 +618,7 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     paintModes();
     paintReading();
     paintEta();
+    if (state.compare) paintSeeds();
     buildGantt();
     $$('#ledger tr[data-mode]').forEach((r) => {
       if (r.dataset.mode === mode) r.setAttribute('aria-current', 'true');
@@ -605,6 +666,125 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
     if (state.playing) requestAnimationFrame(tick);
   }
 
+  /* ---- count-up, appearance, presets, export ----------------------- */
+  const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function tween(el, from, to, ms = 240) {
+    if (reducedMotion()) return;
+    const start = performance.now();
+    const step = (now) => {
+      const k = Math.min(1, (now - start) / ms);
+      const eased = 1 - Math.pow(1 - k, 4);
+      el.textContent = sec(from + (to - from) * eased);
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  function storedAppearance() {
+    try { return localStorage.getItem(APPEARANCE_KEY) || 'system'; } catch (err) { return 'system'; }
+  }
+  function applyAppearance(pref) {
+    const dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.dataset.mode = dark ? 'dark' : 'light';
+    $$('#appearance .seg__btn').forEach((b) => {
+      b.setAttribute('aria-checked', String(b.dataset.pref === pref));
+      b.tabIndex = b.dataset.pref === pref ? 0 : -1;
+    });
+    try { localStorage.setItem(APPEARANCE_KEY, pref); } catch (err) { /* private window: keep the choice for this page only */ }
+  }
+
+  function paintPresets() {
+    const n = Number($('#params').elements.vehicles.value);
+    $$('#presets .mode').forEach((b) => b.setAttribute('aria-checked', String(Number(b.dataset.vehicles) === n)));
+  }
+
+  function exportCsv() {
+    const r = state.replay, ms = r.modes;
+    const lines = [
+      `# Green corridor: seed ${r.scenario.seed}, ${r.scenario.background_vehicles} background vehicles, hold ${r.scenario.corridor_max_hold_s} s, look-ahead ${r.scenario.corridor_horizon_s} s, recovery ${r.scenario.recovery_cycles} cycles`,
+      'mode,transit_s,avg_background_delay_s,p95_background_delay_s,longest_wait_s',
+      ...MODES.map((k) => { const m = ms[k].metrics; return [k, m.transit_s, m.avg_delay_s.toFixed(2), m.p95_delay_s.toFixed(2), m.max_nongreen_s].join(','); }),
+    ];
+    const c = state.compare;
+    if (c) {
+      lines.push('', `# Across ${c.seeds} seeds, mean and 95% confidence half-width, differences paired against no_preemption`,
+        'mode,transit_mean_s,transit_ci95_s,transit_vs_none_s,delay_mean_s,delay_ci95_s,delay_vs_none_s,delay_vs_none_ci95_s');
+      for (const k of MODES) {
+        const m = c.modes[k];
+        lines.push([k, m.transit.mean.toFixed(2), m.transit.ci95.toFixed(2), m.transit_vs_ref ? m.transit_vs_ref.mean.toFixed(2) : '',
+          m.avg_delay.mean.toFixed(2), m.avg_delay.ci95.toFixed(2), m.delay_vs_ref ? m.delay_vs_ref.mean.toFixed(2) : '', m.delay_vs_ref ? m.delay_vs_ref.ci95.toFixed(2) : ''].join(','));
+      }
+    }
+    const url = URL.createObjectURL(new Blob([lines.join('\n') + '\n'], { type: 'text/csv' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: `green-corridor-seed${r.scenario.seed}.csv` });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  /* ---- junction detail ---------------------------------------------- */
+  function selectJunction(id, opener) {
+    state.sel = id;
+    state.opener = opener || null;
+    $$('.jn', $('#map-svg')).forEach((g) => g.classList.toggle('jn--selected', g.dataset.id === id));
+    $('#detail').hidden = false;
+    paintDetail();
+  }
+
+  function closeDetail() {
+    const opener = state.opener;
+    state.sel = null;
+    state.opener = null;
+    $('#detail').hidden = true;
+    $$('.jn', $('#map-svg')).forEach((g) => g.classList.remove('jn--selected'));
+    if (opener && document.contains(opener)) opener.focus();
+  }
+
+  function paintDetail() {
+    if (!state.sel || !state.replay) return;
+    const { replay } = state;
+    const mode = replay.modes[state.mode];
+    const fr = mode.frames;
+    const i = Math.max(0, Math.min(fr.t.length - 1, Math.floor(state.pos)));
+    const id = state.sel;
+    const order = replay.network.junctions.map((j) => j.id);
+    const idx = order.indexOf(id);
+    const byId = Object.fromEntries(replay.network.junctions.map((j) => [j.id, j]));
+    const stop = replay.route.indexOf(id);
+    const shift = fr.shifts[i][idx];
+    const key = `${state.mode}:${id}`;
+    if (state.maxShift[key] == null) state.maxShift[key] = Math.max(...fr.shifts.map((row) => Math.abs(row[idx])));
+    const facts = [
+      ['Position', stop < 0 ? 'Not on the ambulance route' : stop === 0 ? 'Start of the route' : `Stop ${stop} of ${replay.route.length - 1} on the route`],
+      ['North-south signal', STATE_WORD[fr.ns[i][idx]]],
+      ['East-west signal', STATE_WORD[fr.ew[i][idx]]],
+      ['Phase shift now', Math.abs(shift) < 0.05 ? 'None, on its own cycle' : `${signed(shift)} s`],
+      ['Largest shift this run', `${f1(state.maxShift[key])} s`],
+    ];
+    if (stop > 0) {
+      const axis = approachAxes(replay.route, byId)[stop];
+      const arrival = mode.arrivals[id];
+      const pred = (mode.eta.predicted[id] || []);
+      const left = pred[Math.floor(fr.t[i] / 2)] ? pred[Math.floor(fr.t[i] / 2)][1] - fr.t[i] : null;
+      facts.push(['Predicted arrival', left == null || left < 0 ? 'Passed' : `${f0(left)} s from now`]);
+      if (arrival != null) {
+        facts.push(['Ambulance arrived', sec(arrival)]);
+        for (const ahead of [30, 10]) {
+          const e = pred[Math.floor((arrival - ahead) / 2)];
+          if (e) facts.push([`Prediction ${ahead} s ahead`, `${signed(e[1] - arrival)} s off`]);
+        }
+        let lead = 0;
+        for (let t = Math.floor(arrival); t >= 0 && fr[axis][t][idx] === 'G'; t--) lead++;
+        const at = fr[axis][Math.min(fr.t.length - 1, Math.floor(arrival))][idx];
+        facts.push(['Signal at arrival', at === 'G' ? `Green, for ${lead} s already` : `${STATE_WORD[at]}, the ambulance waited`]);
+      }
+    }
+    $('#h-detail').textContent = `Junction ${id}`;
+    $('#facts').innerHTML = facts.map(([k, v]) => `<div class="fact"><dt>${k}</dt><dd class="num">${v}</dd></div>`).join('');
+  }
+
   function bind() {
     $('#params').addEventListener('submit', (e) => {
       e.preventDefault();
@@ -613,6 +793,32 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
       load(v);
     });
     $('#retry').addEventListener('click', () => load(readForm()));
+    $('#export').addEventListener('click', exportCsv);
+    $('#detail-close').addEventListener('click', closeDetail);
+    $('#presets').addEventListener('click', (e) => {
+      const b = e.target.closest('.mode');
+      if (!b || b.disabled) return;
+      $('#params').elements.vehicles.value = b.dataset.vehicles;
+      paintPresets();
+      $('#params').requestSubmit();
+    });
+    $('#params').elements.vehicles.addEventListener('input', paintPresets);
+    $('#appearance').addEventListener('click', (e) => {
+      const b = e.target.closest('.seg__btn');
+      if (b) applyAppearance(b.dataset.pref);
+    });
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (storedAppearance() === 'system') applyAppearance('system');
+    });
+    const svg = $('#map-svg');
+    svg.addEventListener('click', (e) => {
+      const g = e.target.closest('.jn');
+      if (g) selectJunction(g.dataset.id, g);
+    });
+    svg.addEventListener('keydown', (e) => {
+      const g = e.target.closest?.('.jn');
+      if (g && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); selectJunction(g.dataset.id, g); }
+    });
     $('#play').addEventListener('click', togglePlay);
     $('#restart').addEventListener('click', () => { seek(0); });
     $('#scrub').addEventListener('input', (e) => seek(Number(e.target.value)));
@@ -626,6 +832,7 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
       $(`.mode[data-mode="${next}"]`)?.focus();
     });
     document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && state.sel) { closeDetail(); return; }
       if (e.code !== 'Space' || e.target.closest('input, select, textarea, button')) return;
       e.preventDefault();
       togglePlay();
@@ -633,8 +840,10 @@ const sec1 = (n) => `${n.toFixed(1)}${NB}s`;
   }
 
   shell();
+  applyAppearance(storedAppearance());
   const initial = readUrl();
   fillForm(initial);
+  paintPresets();
   bind();
   load(initial);
 })();

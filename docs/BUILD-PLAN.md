@@ -116,8 +116,8 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
       horizon, recovery cycles, slew and reactive trigger.
 - [x] True red/green Gantt and ETA-accuracy chart in `viz/plots.py`.
 - [x] `api/` (replay exporter + local server) and `frontend/` with three theme mocks.
-- [ ] Choose a mock and finalise the frontend (loading/error/empty states are in; polish,
-      tests and `lock the system` design.md are not).
+- [x] Cobalt chosen and finalised: junction detail, per-seed bars, presets, CSV export, light/dark.
+      Not done: frontend automated tests, `lock the system` design.md, SUMO-grade realism.
 - [ ] Re-routing on changed conditions (CLAUDE.md §6.1); SUMO port (D1 phase 2).
 - [ ] Wrap the report against the UCS503L structure — see [REPORT-STATUS.md](REPORT-STATUS.md).
 

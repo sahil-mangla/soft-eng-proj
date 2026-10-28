@@ -52,3 +52,13 @@ def test_server_serves_api_and_blocks_traversal():
         assert e.value.code == 400
     finally:
         httpd.shutdown()
+
+
+def test_compare_modes_returns_per_seed_samples():
+    from metrics.sweep import compare_modes
+    from simulation.engine import RunMode
+
+    out = compare_modes(Scenario(background_vehicles=10), [0, 1, 2], (RunMode.NO_PREEMPTION, RunMode.CORRIDOR_RECOVERY), workers=1)
+    s = out[RunMode.CORRIDOR_RECOVERY]
+    assert len(s.transit_samples) == len(s.delay_samples) == 3
+    assert abs(s.transit.mean - sum(s.transit_samples) / 3) < 1e-9
