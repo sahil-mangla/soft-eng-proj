@@ -26,6 +26,9 @@ class Vehicle:
     speed_mps: float = 0.0
     started: bool = False
     finished_tick: float | None = None
+    # Emergency vehicles move through traffic rather than queueing in it, so
+    # the ambulance does not add itself to the edge density it is slowed by.
+    counts_toward_congestion: bool = True
 
     @property
     def finished(self) -> bool:
@@ -93,6 +96,16 @@ def spawn_background_traffic(
     return vehicles
 
 
+def _enter(vehicle: Vehicle, edge) -> None:
+    if vehicle.counts_toward_congestion:
+        edge.vehicle_count += 1
+
+
+def _leave(vehicle: Vehicle, edge) -> None:
+    if vehicle.counts_toward_congestion:
+        edge.vehicle_count = max(0, edge.vehicle_count - 1)
+
+
 def advance_vehicle(
     vehicle: Vehicle,
     network: RoadNetwork,
@@ -110,7 +123,7 @@ def advance_vehicle(
 
     edge = network.edge(vehicle.current_junction, vehicle.next_junction)
     if not vehicle.started:
-        edge.vehicle_count += 1
+        _enter(vehicle, edge)
         vehicle.started = True
 
     speed = edge.current_speed_mps()
@@ -123,7 +136,7 @@ def advance_vehicle(
         return None
 
     if vehicle.is_on_last_edge:
-        edge.vehicle_count = max(0, edge.vehicle_count - 1)
+        _leave(vehicle, edge)
         vehicle.edge_index += 1
         vehicle.distance_into_edge_m = 0.0
         vehicle.speed_mps = speed
@@ -131,20 +144,32 @@ def advance_vehicle(
         return None
 
     junction = network.junctions[vehicle.next_junction]
-    if junction.signal.state_for_axis(edge.axis, t) in (
+    signal_open = junction.signal.state_for_axis(edge.axis, t) in (
         SignalState.GREEN,
         SignalState.YELLOW,
-    ):
+    )
+    # A vehicle may cross only when the signal allows it, nobody queued ahead
+    # of it is still waiting, and the discharge headway since the previous
+    # crossing has elapsed. Everyone (the ambulance included) leaves a queue
+    # first-in-first-out — this is what makes a late green costly: the queue
+    # built during red has not yet drained when the ambulance arrives.
+    is_next_in_line = not edge.queue or edge.queue[0] == vehicle.id
+    if signal_open and is_next_in_line and t >= edge.next_release_t - 1e-9:
+        if edge.queue:
+            edge.queue.pop(0)
+        edge.next_release_t = t + network.discharge_headway_s
         overflow_m = tentative - edge.length_m
         cleared_junction = vehicle.next_junction
-        edge.vehicle_count = max(0, edge.vehicle_count - 1)
+        _leave(vehicle, edge)
         vehicle.edge_index += 1
         next_edge = network.edge(vehicle.current_junction, vehicle.next_junction)
-        next_edge.vehicle_count += 1
+        _enter(vehicle, next_edge)
         vehicle.distance_into_edge_m = min(overflow_m, next_edge.length_m)
         vehicle.speed_mps = speed
         return cleared_junction
 
+    if vehicle.id not in edge.queue:
+        edge.queue.append(vehicle.id)
     vehicle.distance_into_edge_m = edge.length_m - stop_buffer_m
     vehicle.speed_mps = 0.0
     return None

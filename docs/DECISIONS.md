@@ -4,7 +4,7 @@ Log of decisions that materially shape the codebase. Anything here was chosen by
 the project owner, not assumed by default — see [CLAUDE.md](../CLAUDE.md) §4 for
 the candidate options each decision was drawn from.
 
-Status: **D1–D3 decided** (2026-08-20). D4 deferred, non-blocking.
+Status: **D1–D3 decided** (2026-08-20). D4 deferred, non-blocking. **M1–M5** (modelling decisions) added with simulation v2.
 
 ## D1 — Simulation engine
 
@@ -55,10 +55,35 @@ Status: **D1–D3 decided** (2026-08-20). D4 deferred, non-blocking.
 
 - **Options considered**: local git only (already initialized in this repo) vs.
   also pushing to a hosted remote (e.g. GitHub) now.
-- **Decision**: Local git only for now (already `git init`'d, no commits made
-  yet). Non-blocking — add a remote whenever you're ready to push; ask if/when
+- **Decision**: Local git only for now (several commits so far, no remote). Non-blocking — add a remote whenever you're ready to push; ask if/when
   you want that set up.
 - **Rationale**: Doesn't affect any implementation work; safe to defer.
+
+## Modelling decisions (simulation v2)
+
+Numbered M, not D, so they do not collide with the D5–D9 diagrams in
+[report/Chapter4-System-Design.md](report/Chapter4-System-Design.md).
+
+- **M1 — The ambulance does not add to edge congestion.** It was slowing itself by
+  ~15%, which also hid any difference between modes.
+- **M2 — Background delay is measured on the full vehicle population.** The run
+  continues until every background vehicle finishes; vehicles still running at the tick
+  limit are counted as a lower bound and reported. Previously the sample differed by mode.
+- **M3 — Stop-line queues.** Vehicles leave a queue first-in-first-out, one per 2 s
+  (`discharge_headway_s`), the ambulance included. Without it a late green costs nothing,
+  and reactive preemption cannot be distinguished from predictive.
+- **M4 — Shift hysteresis.** `best_shift_for_green` takes the nearest feasible shift to the
+  junction's *current* one (`anchor`), not to zero, so an ETA that jitters does not flip a
+  junction between opposite shifts.
+- **M5 — Optional eased shifts (`slew_rate`).** Off by default (the brief's threshold rule).
+  Exposed as a sweep parameter and a frontend control.
+
+## Frontend
+
+- **F1 — stdlib `http.server` + vanilla JS/SVG, no build step.** Keeps D3 (pip + venv only);
+  `python -m api.export` makes a static sample so the UI also opens from disk.
+- **F2 — Theme chosen by mock review.** Three Hallmark themes (Cobalt, Blueprint, Coral)
+  are built as live mocks in `frontend/mocks/`; one is kept after review.
 
 ---
 

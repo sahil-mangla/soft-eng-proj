@@ -1,61 +1,51 @@
-"""Runs all three modes (no-preemption, naive-reactive, corridor+recovery) on
-the same sample scenario and prints/plots the before/after comparison — the
-MVP "definition of done" from CLAUDE.md section 3.
+"""Runs all four modes (no-preemption, naive-reactive, corridor without
+recovery, corridor + recovery) on the same scenario and prints/plots the
+comparison — the MVP "definition of done" from CLAUDE.md section 3.
 
-Usage: python demo.py
+Usage: python demo.py [--seed N] [--vehicles N] [--out DIR]
 """
 
+import argparse
+import os
+
+from metrics.eta_accuracy import eta_error_by_lead
 from metrics.evaluate import MetricsEvaluator
-from network.generate_grid import generate_grid
-from simulation.engine import RunLog, RunMode, SimulationEngine
-from viz.plots import plot_comparison, plot_signal_timeline
-
-GRID_SIZE = 5
-BACKGROUND_VEHICLES = 25
-SEED = 42
-START = "J0_0"
-END = f"J{GRID_SIZE - 1}_{GRID_SIZE - 1}"
-
-
-def run_mode(mode: RunMode) -> tuple[RunLog, list[str]]:
-    # Fresh network per mode so all three start from identical signal state,
-    # same seed so background traffic is identical across modes too.
-    network = generate_grid(n=GRID_SIZE)
-    engine = SimulationEngine(
-        network=network,
-        ambulance_start=START,
-        ambulance_end=END,
-        background_vehicle_count=BACKGROUND_VEHICLES,
-        mode=mode,
-        seed=SEED,
-    )
-    log = engine.run()
-    return log, engine.route.junction_ids
+from simulation.engine import RunLog, RunMode
+from simulation.scenario import Scenario, run_scenario
+from viz.plots import plot_comparison, plot_eta_accuracy, plot_signal_timeline
 
 
 def main() -> None:
-    runs: dict[RunMode, RunLog] = {}
-    corridor_log = None
-    corridor_route_ids = None
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--seed", type=int, default=Scenario().seed)
+    parser.add_argument("--vehicles", type=int, default=Scenario().background_vehicles)
+    parser.add_argument("--out", default="outputs")
+    args = parser.parse_args()
 
-    for mode in (RunMode.NO_PREEMPTION, RunMode.NAIVE_REACTIVE, RunMode.CORRIDOR_RECOVERY):
-        log, route_ids = run_mode(mode)
+    scenario = Scenario(seed=args.seed, background_vehicles=args.vehicles)
+    runs: dict[RunMode, RunLog] = {}
+    route_ids: list[str] = []
+    for mode in RunMode:
+        engine, log = run_scenario(scenario, mode)
         runs[mode] = log
-        if mode == RunMode.CORRIDOR_RECOVERY:
-            corridor_log, corridor_route_ids = log, route_ids
+        route_ids = engine.route.junction_ids
 
     report = MetricsEvaluator().compare(runs)
+    print(f"Scenario: {scenario.grid_size}x{scenario.grid_size} grid, {scenario.background_vehicles} "
+          f"background vehicles, seed {scenario.seed}\n")
+    print(f"{'Mode':<24}{'Transit (s)':>12}{'Avg delay (s)':>15}{'p95 delay (s)':>15}{'Max non-green (s)':>19}")
+    for mode, m in report.metrics.items():
+        print(f"{mode.label:<24}{m.transit_s:>12.1f}{m.avg_delay_s:>15.1f}{m.p95_delay_s:>15.1f}{m.max_nongreen_s:>19.1f}")
+    print("\nOne seed is one traffic draw. For means with confidence intervals: python -m metrics.sweep")
 
-    print(f"{'Mode':<22}{'Transit time (s)':>18}{'Avg bg delay (s)':>20}")
-    for mode, log in runs.items():
-        print(
-            f"{mode.value:<22}{report.transit_times_s[mode]:>18.1f}"
-            f"{report.avg_background_delays_s[mode]:>20.1f}"
-        )
-
-    plot_comparison(report)
-    plot_signal_timeline(corridor_log, corridor_route_ids)
-    print("\nCharts written to outputs/comparison.png and outputs/signal_timeline.png")
+    plot_comparison(report, os.path.join(args.out, "comparison.png"))
+    plot_signal_timeline(runs[RunMode.CORRIDOR_RECOVERY], route_ids, os.path.join(args.out, "signal_timeline.png"))
+    plot_signal_timeline(runs[RunMode.NO_PREEMPTION], route_ids, os.path.join(args.out, "signal_timeline_baseline.png"))
+    plot_eta_accuracy(
+        {m: eta_error_by_lead(runs[m]) for m in (RunMode.NO_PREEMPTION, RunMode.CORRIDOR_RECOVERY)},
+        os.path.join(args.out, "eta_accuracy.png"),
+    )
+    print(f"Charts written to {args.out}/")
 
 
 if __name__ == "__main__":

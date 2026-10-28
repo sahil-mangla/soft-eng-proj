@@ -52,10 +52,8 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
       route, estimate seconds-to-arrival at each upcoming junction.
 - [x] Prediction updates on a rolling basis (every simulation tick or every N
       metres traveled) as the ambulance moves — not computed once at t=0.
-- [ ] Validation: log predicted vs. actual arrival time per junction per run;
-      confirm error shrinks as the ambulance gets closer. (Not yet instrumented
-      in v1 — predictions are consumed live by the coordinator but not logged
-      for accuracy analysis.)
+- [x] Validation: `metrics/eta_accuracy.py` logs predicted vs. actual arrival per
+      junction; error shrinks from ~5 s at 60–90 s out to 0.4 s at arrival.
 
 ## Step 4 — Green corridor coordination (the core novel logic)
 
@@ -104,19 +102,24 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
       (same network, same background traffic, same ambulance A→B) and prints the
       comparison table + renders the charts from Step 7. (`demo.py` at repo
       root.)
-- [x] Confirm the MVP "definition of done" from [CLAUDE.md](../CLAUDE.md) §3:
-      v1 sample run — no-preemption 171.0s / naive-reactive 136.0s /
-      corridor+recovery 136.0s transit time; avg background delay 32.9s /
-      26.8s / 26.4s respectively. Corridor mode matches naive-reactive's
-      ambulance benefit while imposing the least background delay of the
-      three, using a *bounded* preemption instead of naive-reactive's
-      unbounded one — directionally correct, though the corridor-vs-naive gap
-      is small on this scenario and worth widening with tuned parameters
-      (`corridor_horizon_s`, `corridor_max_hold_s`, `recovery_cycles`) or a
-      denser/larger grid before treating these as final numbers.
-- [ ] Wrap the report: Chapters 1–3 (and now 4, system design) are drafted in
-      [docs/report/](report/); add implementation, testing, and results
-      chapters now that v1 is running.
+- [x] Confirm the MVP "definition of done" from [CLAUDE.md](../CLAUDE.md) §3 — **met as a
+      pipeline, not as a hypothesis.** Four modes run on identical scenarios and report
+      transit, background delay and starvation, with multi-seed CIs
+      ([RESULTS.md](RESULTS.md)). Any preemption saves ~15% of ambulance time; the
+      predictive corridor is not distinguishable from naive reactive in this simulator.
+
+## Step 9 — Hardening, evaluation, frontend (simulation v2)
+
+- [x] Model fixes M1–M5 ([DECISIONS.md](DECISIONS.md)); `Scenario` config shared by all entry points.
+- [x] Corridor-without-recovery mode (the recovery ablation); 48 pytest tests in `tests/`.
+- [x] `metrics/sweep.py`: multi-seed CIs, paired differences, sweeps over load, hold,
+      horizon, recovery cycles, slew and reactive trigger.
+- [x] True red/green Gantt and ETA-accuracy chart in `viz/plots.py`.
+- [x] `api/` (replay exporter + local server) and `frontend/` with three theme mocks.
+- [ ] Choose a mock and finalise the frontend (loading/error/empty states are in; polish,
+      tests and `lock the system` design.md are not).
+- [ ] Re-routing on changed conditions (CLAUDE.md §6.1); SUMO port (D1 phase 2).
+- [ ] Wrap the report against the UCS503L structure — see [REPORT-STATUS.md](REPORT-STATUS.md).
 
 ## Explicitly deferred (do not build in this plan)
 

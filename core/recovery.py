@@ -32,6 +32,9 @@ class RecoveryManager:
         if junction_id in self._active:
             return
         duration_s = self.recovery_cycles * signal.cycle_plan.cycle_length
+        if duration_s <= 0.0:
+            signal.phase_offset_shift = 0.0  # recovery_cycles=0: instant reset
+            return
         self._active[junction_id] = _RecoveryState(
             initial_shift=signal.phase_offset_shift, duration_s=duration_s
         )
@@ -45,6 +48,9 @@ class RecoveryManager:
         signal.phase_offset_shift = state.initial_shift * fraction_remaining
         if fraction_remaining <= 0.0:
             del self._active[junction_id]
+
+    def any_active(self) -> bool:
+        return bool(self._active)
 
     def is_recovering(self, junction_id: str) -> bool:
         return junction_id in self._active

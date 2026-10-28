@@ -70,29 +70,51 @@ class Signal:
         return self.cycle_plan.phase_at(t + self.phase_offset_shift)[axis]
 
     def best_shift_for_green(
-        self, axis: Axis, arrival_t: float, max_shift: float, step: float = 1.0
+        self,
+        axis: Axis,
+        arrival_t: float,
+        max_shift: float,
+        step: float = 1.0,
+        lo: float | None = None,
+        hi: float | None = None,
+        anchor: float = 0.0,
     ) -> float:
         """Smallest-magnitude shift (bounded by max_shift) that makes `axis`
         as green as possible at arrival_t. This is the one routine behind
         both "extend current green" and "truncate opposing phase" — which
         of the two happens falls out of which direction of shift improves
         the score, not a separate code path.
+
+        `lo`/`hi` optionally narrow the search band further (e.g. to the
+        shifts reachable from the current one at a bounded slew rate); the
+        band's own edges are always candidates so a fractional band is never
+        missed by the 1s grid.
+
+        `anchor` is the shift the search prefers to stay near (the junction's
+        current one). Ranking candidates by distance from the anchor rather
+        than from zero is the hysteresis that stops a jittering ETA from
+        flipping a junction between, say, -12s and +11s tick to tick.
         """
         cycle = self.cycle_plan
-        best_shift = 0.0
-        best_score = _STATE_SCORE[cycle.phase_at(arrival_t)[axis]]
-        if best_score == _STATE_SCORE[SignalState.GREEN]:
-            return best_shift
-        shift = step
-        while shift <= max_shift + 1e-9:
-            for candidate in (shift, -shift):
-                score = _STATE_SCORE[cycle.phase_at(arrival_t + candidate)[axis]]
-                if score > best_score:
-                    best_score = score
-                    best_shift = candidate
-                    if score == _STATE_SCORE[SignalState.GREEN]:
-                        return best_shift
-            shift += step
+        low = -max_shift if lo is None else max(lo, -max_shift)
+        high = max_shift if hi is None else min(hi, max_shift)
+        if low > high:
+            return (low + high) / 2.0
+
+        n = int(max_shift / step + 1e-9)
+        grid = {0.0} | {k * step for k in range(1, n + 1)} | {-k * step for k in range(1, n + 1)}
+        candidates = sorted(
+            (c for c in grid | {low, high, anchor} if low - 1e-9 <= c <= high + 1e-9),
+            key=lambda c: (round(abs(c - anchor), 9), abs(c), c < 0),
+        )
+        best_shift = candidates[0]
+        best_score = -1
+        for c in candidates:
+            score = _STATE_SCORE[cycle.phase_at(arrival_t + c)[axis]]
+            if score > best_score:
+                best_score, best_shift = score, c
+                if score == _STATE_SCORE[SignalState.GREEN]:
+                    break
         return best_shift
 
 
@@ -112,6 +134,10 @@ class Edge:
     length_m: float
     free_flow_speed_mps: float = 13.9  # ~50 km/h
     vehicle_count: int = 0
+    # Stop-line queue: ids of vehicles waiting to cross at v, in arrival order,
+    # and the earliest time the next vehicle may cross (discharge headway).
+    queue: list[str] = field(default_factory=list)
+    next_release_t: float = 0.0
 
     def current_speed_mps(self, congestion_k: float = 0.15) -> float:
         return self.free_flow_speed_mps / (1.0 + congestion_k * self.vehicle_count)
@@ -122,6 +148,21 @@ class RoadNetwork:
     junctions: dict[str, Junction]
     edges: dict[tuple[str, str], Edge]
     graph: nx.DiGraph
+    spacing_m: float = 200.0
+    # Seconds between successive vehicles crossing a stop line (saturation
+    # flow ~1800 veh/h/lane = 2.0s). 0 disables queue discharge limits.
+    discharge_headway_s: float = 2.0
+
+    def xy(self, junction_id: str) -> tuple[float, float]:
+        """Metre coordinates of a junction (x east, y south), for rendering."""
+        j = self.junctions[junction_id]
+        return (j.col * self.spacing_m, j.row * self.spacing_m)
+
+    def position_xy(self, u: str, v: str, distance_m: float) -> tuple[float, float]:
+        """Point `distance_m` along the edge u -> v."""
+        (x0, y0), (x1, y1) = self.xy(u), self.xy(v)
+        f = min(max(distance_m / self.edges[(u, v)].length_m, 0.0), 1.0)
+        return (x0 + (x1 - x0) * f, y0 + (y1 - y0) * f)
 
     def edge(self, u: str, v: str) -> Edge:
         return self.edges[(u, v)]
@@ -139,6 +180,7 @@ def generate_grid(
     edge_length_m: float = 200.0,
     green_duration: float = 20.0,
     yellow_duration: float = 3.0,
+    discharge_headway_s: float = 2.0,
 ) -> RoadNetwork:
     """Build an n x n synthetic grid network (per DECISIONS.md D2). Every
     junction gets its own independent Signal instance, so corridor
@@ -174,4 +216,4 @@ def generate_grid(
             if r + 1 < n:
                 add_bidirectional(jid, _junction_id(r + 1, c), axis="NS")
 
-    return RoadNetwork(junctions=junctions, edges=edges, graph=graph)
+    return RoadNetwork(junctions=junctions, edges=edges, graph=graph, spacing_m=edge_length_m, discharge_headway_s=discharge_headway_s)
