@@ -112,3 +112,11 @@ def test_export_accepts_a_bare_filename(tmp_path, monkeypatch):
 def test_replay_carries_a_route_per_mode(replay):
     for key, mode in replay["modes"].items():
         assert mode["route"][0] == "J0_0" and mode["route"][-1] == "J4_4", key
+
+
+def test_arterial_and_reroute_parameters_are_parsed_and_clamped():
+    sc = scenario_from_query({"arterial": ["0.5"], "reroute": ["0"]})
+    assert sc.arterial_share == 0.5 and sc.reroute is False
+    assert scenario_from_query({"arterial": ["7"]}).arterial_share == 1.0
+    with pytest.raises(ValueError):
+        scenario_from_query({"arterial": ["nan"]})

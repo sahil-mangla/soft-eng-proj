@@ -3,7 +3,7 @@ simulation as JSON. Standard library only (D3: no extra dependencies).
 
     python -m api.server [--port 8000]
 
-  GET /api/replay?seed=42&vehicles=80&hold=15&horizon=60&recovery=2&slew=&trigger=200
+  GET /api/replay?seed=42&vehicles=80&hold=15&horizon=60&recovery=2&slew=&trigger=200&arterial=0&reroute=1
       -> four-mode replay of one scenario (see api/replay.py)
   GET /api/compare?seeds=12&vehicles=80&...
       -> multi-seed means with 95% CIs for every mode (metrics/sweep.py)
@@ -67,7 +67,7 @@ def _num(q: dict, key: str, cast, lo, hi, default):
     raw = q.get(key, [""])[0]
     if raw == "":
         return default
-    return min(max(_finite(key, raw, cast), lo), hi)
+    return min(max(_finite(key, raw, cast), cast(lo)), cast(hi))  # bounds share the parameter's type
 
 
 def scenario_from_query(q: dict) -> Scenario:
@@ -82,6 +82,8 @@ def scenario_from_query(q: dict) -> Scenario:
         corridor_max_hold_s=_num(q, "hold", float, 0, 40, d.corridor_max_hold_s),
         recovery_cycles=_num(q, "recovery", int, 0, 6, d.recovery_cycles),
         reactive_trigger_m=_num(q, "trigger", float, 50, 400, d.reactive_trigger_m),
+        arterial_share=_num(q, "arterial", float, 0.0, 1.0, d.arterial_share),
+        reroute=bool(_num(q, "reroute", int, 0, 1, int(d.reroute))),
         slew_rate=slew,
     )
 
@@ -142,12 +144,19 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+HOST = "127.0.0.1"  # loopback only: the server has no authentication, so it is never exposed to the network
+
+
+def make_server(port: int = 8000) -> ThreadingHTTPServer:
+    return ThreadingHTTPServer((HOST, port), Handler)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
-    httpd = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    print(f"Serving http://127.0.0.1:{args.port}  (Ctrl-C to stop)")
+    httpd = make_server(args.port)
+    print(f"Serving http://{HOST}:{args.port}  (Ctrl-C to stop)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

@@ -134,6 +134,14 @@ def run_standard_suite(seeds: list[int], base: Scenario, workers: int | None = N
             base, "slew_rate", [None, 0.4, 0.25, 0.15, 0.1], seeds,
             (RunMode.NO_PREEMPTION,) + corridor, workers,
         ),
+        # Arterial demand: the ambulance cannot leave the corridor (reroute off), so queues it
+        # must pass through actually form. This is where predictive timing could earn its keep.
+        "arterial": sweep_parameter(
+            base.with_(background_vehicles=200, reroute=False), "arterial_share", [0.0, 0.25, 0.5, 0.8], seeds, pre, workers
+        ),
+        "arterial_80": sweep_parameter(
+            base.with_(background_vehicles=80, reroute=False), "arterial_share", [0.0, 0.25, 0.5, 0.8], seeds, pre, workers
+        ),
         "reactive_trigger": sweep_parameter(
             base, "reactive_trigger_m", [100.0, 200.0, 300.0, 400.0], seeds,
             (RunMode.NO_PREEMPTION, RunMode.NAIVE_REACTIVE), workers,

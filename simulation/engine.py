@@ -133,6 +133,7 @@ class SimulationEngine:
         record_frames: bool = False,
         reroute: bool = True,
         reroute_gain: float = 0.10,
+        arterial_share: float = 0.0,
     ):
         if ambulance_start == ambulance_end:
             raise ValueError("ambulance_start and ambulance_end must differ")
@@ -150,7 +151,11 @@ class SimulationEngine:
         self.route: Route = compute_route(network, ambulance_start, ambulance_end)
         self.ambulance = Ambulance(id="ambulance", route=list(self.route.junction_ids))
         self.background_vehicles: list[BackgroundVehicle] = spawn_background_traffic(
-            network, count=background_vehicle_count, seed=seed
+            network,
+            count=background_vehicle_count,
+            seed=seed,
+            corridor=list(self.route.junction_ids),  # the initial route, identical in every mode
+            corridor_share=arterial_share,
         )
 
         self.eta_predictor = ETAPredictor()

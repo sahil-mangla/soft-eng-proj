@@ -227,11 +227,22 @@
     try {
       if (location.protocol === 'file:') throw new Error('file');
       const res = await fetch(`/api/replay?${qs}`);
-      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+      if (!res.ok) {
+        // The server is there and said no: show its reason, not stand-in data.
+        const refused = new Error((await res.json().catch(() => ({}))).error || res.statusText);
+        refused.refused = true;
+        throw refused;
+      }
       state.replay = await res.json();
       state.source = 'api';
       state.compare = null;
     } catch (err) {
+      if (err.refused) {
+        state.status = 'error';
+        state.error = `The simulation rejected these settings: ${err.message}.`;
+        paintStatus();
+        return;
+      }
       if (window.__REPLAY__) {
         state.replay = window.__REPLAY__;
         state.compare = window.__COMPARE__ || null;
@@ -491,7 +502,10 @@
 
   function strips(c) {
     const mode = c.modes[state.mode], ref = c.modes.no_preemption;
-    if (state.mode === 'no_preemption' || !mode.transit_samples || !ref.transit_samples) return '';
+    if (state.mode === 'no_preemption') {
+      return '<p class="note strips-hint">Pick another control mode above to see it against no preemption, seed by seed.</p>';
+    }
+    if (!mode.transit_samples || !ref.transit_samples) return '';
     const one = (label, a, b, unit, digits) => {
       const diffs = a.map((v, i) => (ok(v) && ok(b[i]) ? v - b[i] : null)).filter(ok);
       if (!diffs.length) return '';
@@ -524,7 +538,11 @@
       paintSeeds();
       paintReading();
     } catch (err) {
-      $('#seeds').insertAdjacentHTML('beforeend', `<p class="error" role="alert">Comparison failed: ${err.message}</p>`);
+      const note = document.createElement('p');
+      note.className = 'error';
+      note.setAttribute('role', 'alert');
+      note.textContent = `Comparison failed: ${err.message}`; // text, never markup
+      $('#seeds').appendChild(note);
       btn.disabled = false;
       btn.textContent = 'Compare over 12 seeds';
     }

@@ -25,6 +25,7 @@ class Scenario:
     slew_rate: float | None = None
     reactive_trigger_m: float = 200.0
     reroute: bool = True
+    arterial_share: float = 0.0  # fraction of background traffic that drives the ambulance's corridor
     start: str | None = None  # default: top-left corner
     end: str | None = None  # default: bottom-right corner
 
@@ -63,6 +64,7 @@ def build_engine(scenario: Scenario, mode: RunMode, record_frames: bool = False)
         reactive_trigger_m=scenario.reactive_trigger_m,
         record_frames=record_frames,
         reroute=scenario.reroute,
+        arterial_share=scenario.arterial_share,
     )
 
 

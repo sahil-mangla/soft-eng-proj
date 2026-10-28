@@ -73,16 +73,38 @@ def spawn_background_traffic(
     min_hops: int = 3,
     max_hops: int = 8,
     spawn_window_ticks: int = 20,
+    corridor: list[str] | None = None,
+    corridor_share: float = 0.0,
+    corridor_window_ticks: int = 120,
 ) -> list[BackgroundVehicle]:
     """Simple background vehicles on random-walk routes, staggered over the
     first `spawn_window_ticks` seconds so they don't all appear at t=0. They
     carry no route-awareness of the ambulance — they just obey whatever
     signal state each junction currently shows.
+
+    `corridor_share` makes that fraction of the vehicles arterial traffic: each
+    drives a stretch (3 to 8 roads) of `corridor`, the ambulance's own path and
+    in its direction, spawning steadily over `corridor_window_ticks`. That builds
+    queues where the ambulance has to pass, which uniform random-walk traffic never
+    does. It uses its own random stream, so a share of 0 leaves the original
+    traffic exactly as it was.
     """
     rng = random.Random(seed)
+    arterial_rng = random.Random(f"arterial-{seed}")
     junction_ids = list(network.junctions.keys())
     vehicles = []
     for i in range(count):
+        if corridor and corridor_share > 0 and len(corridor) >= 2 and arterial_rng.random() < corridor_share:
+            first = arterial_rng.randint(0, len(corridor) - 2)
+            last = min(len(corridor) - 1, first + arterial_rng.randint(min_hops, max_hops))
+            vehicles.append(
+                BackgroundVehicle(
+                    id=f"bg{i}",
+                    route=list(corridor[first : last + 1]),
+                    spawn_tick=arterial_rng.randint(0, corridor_window_ticks),
+                )
+            )
+            continue
         start = rng.choice(junction_ids)
         hops = rng.randint(min_hops, max_hops)
         route = _random_walk_route(network, start, hops, rng)
