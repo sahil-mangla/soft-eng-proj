@@ -97,5 +97,5 @@ The team's allocation is **not recorded in the repository** and has not been inv
 | SUMO installation or port risk | Medium | Medium | Decision D1: custom simulator first, SUMO later | SUMO never needed for the MVP; port deferred |
 | Report falls behind the code | High | Medium | Track against the report structure | Materialised; corrected in this phase |
 | Invalid input crashes the service | Medium | Medium | Validate and clamp; return 400 | NaN and infinity crashed the handler until BUG-10 |
-| Loss of work | Low | High | Git, small commits | All work committed; no remote yet (decision D4) |
+| Loss of work | Low | High | Git, small commits | All work committed; a GitHub remote is configured but the latest commits were not yet pushed when this was written (decision D4) |
 | Interface does not suit the users | Medium | Low | Build several prototypes and choose | Three prototypes built; Cobalt chosen |

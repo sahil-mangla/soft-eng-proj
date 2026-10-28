@@ -55,7 +55,7 @@ Status: **D1–D3 decided** (2026-08-20). D4 deferred, non-blocking. **M1–M10*
 
 - **Options considered**: local git only (already initialized in this repo) vs.
   also pushing to a hosted remote (e.g. GitHub) now.
-- **Decision**: Local git only for now (several commits so far, no remote). Non-blocking — add a remote whenever you're ready to push; ask if/when
+- **Decision**: Local commits first. A GitHub remote (`origin`) is now configured; pushing is left to the project owner (at the time of writing the recent commits are local only). Non-blocking — ask if/when
   you want that set up.
 - **Rationale**: Doesn't affect any implementation work; safe to defer.
 
